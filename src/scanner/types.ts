@@ -10,6 +10,7 @@ export type InputClassification =
   | 'radio-group'
   | 'checkbox-group'
   | 'file'
+  | 'password'
   | 'unknown';
 
 export type ConfidenceTier = 'high' | 'medium' | 'low';
@@ -39,6 +40,10 @@ export interface DetectedField {
   mappedProfileKey?: string;
   isAmbiguous?: boolean;
   ambiguityReason?: string;
+  automationId?: string;
+  testId?: string;
+  formId?: string;
+  groupName?: string;
 }
 
 export interface FormScanSummary {

@@ -31,23 +31,38 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
 
 // Setup debounced dynamic mutation observer to avoid CPU lockup
 let mutationTimeout: any = null;
+let lastControlCount = document.querySelectorAll('input, select, textarea').length;
+
 const observer = new MutationObserver((mutations) => {
   let hasRelevantChange = false;
   for (const m of mutations) {
     if (m.addedNodes.length > 0 || m.removedNodes.length > 0) {
-      hasRelevantChange = true;
-      break;
+      for (const node of Array.from(m.addedNodes)) {
+        if (node instanceof HTMLElement) {
+          if (
+            node.matches?.('input, select, textarea, form, [role="combobox"]') ||
+            node.querySelector?.('input, select, textarea, [role="combobox"]')
+          ) {
+            hasRelevantChange = true;
+            break;
+          }
+        }
+      }
+      if (hasRelevantChange) break;
     }
   }
 
   if (hasRelevantChange) {
     clearTimeout(mutationTimeout);
     mutationTimeout = setTimeout(() => {
-      // Broadcast dynamic form change event if needed
-      chrome.runtime.sendMessage({ type: 'DYNAMIC_FORM_CHANGED' }).catch(() => {
-        // Suppress error if popup/sidepanel is closed
-      });
-    }, 500);
+      const currentControlCount = document.querySelectorAll('input, select, textarea').length;
+      if (currentControlCount !== lastControlCount) {
+        lastControlCount = currentControlCount;
+        chrome.runtime.sendMessage({ type: 'DYNAMIC_FORM_CHANGED' }).catch(() => {
+          // Suppress error if popup/sidepanel is closed
+        });
+      }
+    }, 600);
   }
 });
 

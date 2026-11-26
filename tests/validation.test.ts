@@ -58,6 +58,57 @@ describe('Profile Validation and Import/Export', () => {
     expect(importedResult.profile?.personal.lastName).toBe('Nair');
   });
 
+  it('prevents string "false" from turning into boolean true', () => {
+    const jsonWithFalseStrings = JSON.stringify({
+      personal: { firstName: 'Sam', lastName: 'Altman', email: 'sam@example.com' },
+      location: { city: 'SF', country: 'USA' },
+      preferences: {
+        isFresher: 'false',
+        immediateJoiner: 'no',
+        willingToRelocate: '0',
+      },
+    });
+
+    const res = importProfileFromJson(jsonWithFalseStrings);
+    expect(res.success).toBe(true);
+    expect(res.profile?.preferences.isFresher).toBe(false);
+    expect(res.profile?.preferences.immediateJoiner).toBe(false);
+    expect(res.profile?.preferences.willingToRelocate).toBe(false);
+  });
+
+  it('validates nested education and experience records properly during import', () => {
+    const jsonWithNested = JSON.stringify({
+      personal: { firstName: 'Rohan', lastName: 'Mehta' },
+      location: { city: 'Delhi' },
+      education: [
+        {
+          id: 'edu-1',
+          institution: 'IIT Delhi',
+          degree: 'B.Tech',
+          scoreType: 'cgpa',
+          score: '9.4',
+          graduationYear: '2024',
+        },
+      ],
+      experience: [
+        {
+          id: 'exp-1',
+          type: 'internship',
+          company: 'Microsoft',
+          jobTitle: 'SWE Intern',
+          isCurrent: 'false',
+        },
+      ],
+    });
+
+    const res = importProfileFromJson(jsonWithNested);
+    expect(res.success).toBe(true);
+    expect(res.profile?.education[0].score).toBe(9.4);
+    expect(res.profile?.education[0].graduationYear).toBe(2024);
+    expect(res.profile?.experience[0].type).toBe('internship');
+    expect(res.profile?.experience[0].isCurrent).toBe(false);
+  });
+
   it('rejects malformed JSON imports safely', () => {
     const badJson = '{"foo": "bar"}';
     const res = importProfileFromJson(badJson);

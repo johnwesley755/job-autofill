@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { dbService, ResumeDocument } from '../../utils/indexedDb';
+import { dbService, ResumeDocument, MAX_RESUME_SIZE_BYTES } from '../../utils/indexedDb';
 import { FileText, Upload, Trash2, Star } from 'lucide-react';
 
 export const ResumesTab: React.FC = () => {
@@ -27,8 +27,14 @@ export const ResumesTab: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.name.endsWith('.pdf') && !file.name.endsWith('.docx')) {
+    const lowerName = file.name.toLowerCase();
+    if (!lowerName.endsWith('.pdf') && !lowerName.endsWith('.docx')) {
       setErrorMessage('Please upload a PDF or DOCX resume.');
+      return;
+    }
+
+    if (file.size > MAX_RESUME_SIZE_BYTES) {
+      setErrorMessage(`Resume exceeds the 5 MB maximum limit (${(file.size / (1024 * 1024)).toFixed(1)} MB).`);
       return;
     }
 
@@ -36,7 +42,7 @@ export const ResumesTab: React.FC = () => {
       id: `resume-${Date.now()}`,
       name: file.name,
       size: file.size,
-      type: file.type,
+      type: file.type || (lowerName.endsWith('.pdf') ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'),
       isDefault: resumes.length === 0,
       uploadedAt: new Date().toISOString(),
       data: file,
@@ -89,8 +95,8 @@ export const ResumesTab: React.FC = () => {
         <span className="text-xs font-semibold text-gray-800 dark:text-gray-200">
           Click to upload resume (PDF / DOCX)
         </span>
-        <span className="text-[10px] text-gray-400 mt-0.5">Files never leave your local browser</span>
-        <input type="file" accept=".pdf,.docx" onChange={handleFileUpload} className="hidden" />
+        <span className="text-[10px] text-gray-400 mt-0.5">Max size 5 MB · Stored 100% locally on your browser</span>
+        <input type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={handleFileUpload} className="hidden" />
       </label>
 
       {/* Resumes List */}

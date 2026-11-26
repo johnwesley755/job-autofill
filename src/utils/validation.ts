@@ -1,4 +1,4 @@
-import { CandidateProfile } from '../types/profile';
+import { CandidateProfile, EducationRecord, ExperienceRecord } from '../types/profile';
 
 export interface ValidationIssue {
   field: string;
@@ -108,70 +108,149 @@ export function exportProfileToJson(profile: CandidateProfile): string {
   return JSON.stringify(profile, null, 2);
 }
 
+/**
+ * Parses a value strictly to a boolean, preventing string "false" or "0" from becoming true.
+ */
+function parseStrictBoolean(val: any, fallback = false): boolean {
+  if (typeof val === 'boolean') return val;
+  if (typeof val === 'string') {
+    const lower = val.trim().toLowerCase();
+    if (lower === 'true' || lower === '1' || lower === 'yes') return true;
+    if (lower === 'false' || lower === '0' || lower === 'no') return false;
+  }
+  if (typeof val === 'number') {
+    return val === 1;
+  }
+  return fallback;
+}
+
+/**
+ * Parses a value strictly to an optional number.
+ */
+function parseOptionalNumber(val: any): number | undefined {
+  if (val === undefined || val === null || val === '') return undefined;
+  const num = Number(val);
+  return isNaN(num) ? undefined : num;
+}
+
 export function importProfileFromJson(jsonString: string): { success: boolean; profile?: CandidateProfile; error?: string } {
   try {
     const parsed = JSON.parse(jsonString);
-    if (!parsed || typeof parsed !== 'object') {
-      return { success: false, error: 'Invalid JSON root' };
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { success: false, error: 'Invalid JSON root: Expected a candidate profile object' };
     }
     if (!parsed.personal || typeof parsed.personal !== 'object') {
-      return { success: false, error: 'Missing personal information structure' };
+      return { success: false, error: 'Missing or invalid personal information section' };
     }
     if (!parsed.location || typeof parsed.location !== 'object') {
-      return { success: false, error: 'Missing location information structure' };
+      return { success: false, error: 'Missing or invalid location information section' };
+    }
+
+    // Validate and sanitize education records
+    const validatedEducation: EducationRecord[] = [];
+    if (Array.isArray(parsed.education)) {
+      for (let i = 0; i < parsed.education.length; i++) {
+        const item = parsed.education[i];
+        if (!item || typeof item !== 'object') {
+          return { success: false, error: `Education record #${i + 1} is invalid` };
+        }
+        validatedEducation.push({
+          id: String(item.id || `edu-${Date.now()}-${i}`),
+          institution: String(item.institution || '').trim(),
+          degree: String(item.degree || '').trim(),
+          fieldOfStudy: String(item.fieldOfStudy || '').trim(),
+          graduationYear: parseOptionalNumber(item.graduationYear),
+          startYear: parseOptionalNumber(item.startYear),
+          scoreType: item.scoreType === 'percentage' ? 'percentage' : 'cgpa',
+          score: parseOptionalNumber(item.score),
+          scale: parseOptionalNumber(item.scale),
+          backlogsCount: parseOptionalNumber(item.backlogsCount),
+        });
+      }
+    }
+
+    // Validate and sanitize experience records
+    const validatedExperience: ExperienceRecord[] = [];
+    if (Array.isArray(parsed.experience)) {
+      for (let i = 0; i < parsed.experience.length; i++) {
+        const item = parsed.experience[i];
+        if (!item || typeof item !== 'object') {
+          return { success: false, error: `Experience record #${i + 1} is invalid` };
+        }
+        const expType = item.type === 'internship' ? 'internship' : item.type === 'contract' ? 'contract' : 'full-time';
+        validatedExperience.push({
+          id: String(item.id || `exp-${Date.now()}-${i}`),
+          type: expType,
+          company: String(item.company || '').trim(),
+          jobTitle: String(item.jobTitle || '').trim(),
+          location: item.location ? String(item.location).trim() : undefined,
+          startDate: item.startDate ? String(item.startDate).trim() : undefined,
+          endDate: item.endDate ? String(item.endDate).trim() : undefined,
+          isCurrent: parseStrictBoolean(item.isCurrent, false),
+          description: item.description ? String(item.description).trim() : undefined,
+        });
+      }
     }
 
     const merged: CandidateProfile = {
-      id: parsed.id || `profile-${Date.now()}`,
+      id: String(parsed.id || `profile-${Date.now()}`),
       updatedAt: new Date().toISOString(),
       personal: {
-        firstName: parsed.personal.firstName || '',
-        middleName: parsed.personal.middleName || '',
-        lastName: parsed.personal.lastName || '',
-        fullName: parsed.personal.fullName || `${parsed.personal.firstName || ''} ${parsed.personal.lastName || ''}`.trim(),
-        email: parsed.personal.email || '',
-        phone: parsed.personal.phone || '',
-        phoneCountryCode: parsed.personal.phoneCountryCode || '+91',
-        dob: parsed.personal.dob || '',
+        firstName: String(parsed.personal.firstName || '').trim(),
+        middleName: parsed.personal.middleName ? String(parsed.personal.middleName).trim() : undefined,
+        lastName: String(parsed.personal.lastName || '').trim(),
+        fullName: String(
+          parsed.personal.fullName ||
+            `${parsed.personal.firstName || ''} ${parsed.personal.middleName || ''} ${parsed.personal.lastName || ''}`.replace(/\s+/g, ' ')
+        ).trim(),
+        email: String(parsed.personal.email || '').trim(),
+        phone: String(parsed.personal.phone || '').trim(),
+        phoneCountryCode: String(parsed.personal.phoneCountryCode || '+91').trim(),
+        dob: parsed.personal.dob ? String(parsed.personal.dob).trim() : undefined,
         gender: parsed.personal.gender || 'prefer-not-to-say',
-        nationality: parsed.personal.nationality || '',
+        nationality: parsed.personal.nationality ? String(parsed.personal.nationality).trim() : undefined,
       },
       location: {
-        addressLine1: parsed.location.addressLine1 || '',
-        addressLine2: parsed.location.addressLine2 || '',
-        city: parsed.location.city || '',
-        state: parsed.location.state || '',
-        country: parsed.location.country || '',
-        postalCode: parsed.location.postalCode || '',
+        addressLine1: String(parsed.location.addressLine1 || '').trim(),
+        addressLine2: parsed.location.addressLine2 ? String(parsed.location.addressLine2).trim() : undefined,
+        city: String(parsed.location.city || '').trim(),
+        state: String(parsed.location.state || '').trim(),
+        country: String(parsed.location.country || '').trim(),
+        postalCode: String(parsed.location.postalCode || '').trim(),
       },
-      education: Array.isArray(parsed.education) ? parsed.education : [],
-      experience: Array.isArray(parsed.experience) ? parsed.experience : [],
+      education: validatedEducation,
+      experience: validatedExperience,
       skills: {
-        languages: Array.isArray(parsed.skills?.languages) ? parsed.skills.languages : [],
-        frameworks: Array.isArray(parsed.skills?.frameworks) ? parsed.skills.frameworks : [],
-        databases: Array.isArray(parsed.skills?.databases) ? parsed.skills.databases : [],
-        tools: Array.isArray(parsed.skills?.tools) ? parsed.skills.tools : [],
-        certifications: Array.isArray(parsed.skills?.certifications) ? parsed.skills.certifications : [],
+        languages: Array.isArray(parsed.skills?.languages) ? parsed.skills.languages.map(String) : [],
+        frameworks: Array.isArray(parsed.skills?.frameworks) ? parsed.skills.frameworks.map(String) : [],
+        databases: Array.isArray(parsed.skills?.databases) ? parsed.skills.databases.map(String) : [],
+        tools: Array.isArray(parsed.skills?.tools) ? parsed.skills.tools.map(String) : [],
+        certifications: Array.isArray(parsed.skills?.certifications) ? parsed.skills.certifications.map(String) : [],
       },
       links: {
-        linkedin: parsed.links?.linkedin || '',
-        github: parsed.links?.github || '',
-        portfolio: parsed.links?.portfolio || '',
-        twitter: parsed.links?.twitter || '',
+        linkedin: parsed.links?.linkedin ? String(parsed.links.linkedin).trim() : undefined,
+        github: parsed.links?.github ? String(parsed.links.github).trim() : undefined,
+        portfolio: parsed.links?.portfolio ? String(parsed.links.portfolio).trim() : undefined,
+        twitter: parsed.links?.twitter ? String(parsed.links.twitter).trim() : undefined,
       },
       preferences: {
-        isFresher: Boolean(parsed.preferences?.isFresher),
-        totalExperienceYears: parsed.preferences?.totalExperienceYears,
-        noticePeriodDays: parsed.preferences?.noticePeriodDays,
-        immediateJoiner: Boolean(parsed.preferences?.immediateJoiner),
-        currentCtcLpa: parsed.preferences?.currentCtcLpa,
-        expectedCtcLpa: parsed.preferences?.expectedCtcLpa,
-        currency: parsed.preferences?.currency || 'INR',
-        preferredCities: Array.isArray(parsed.preferences?.preferredCities) ? parsed.preferences.preferredCities : [],
-        willingToRelocate: Boolean(parsed.preferences?.willingToRelocate),
+        isFresher: parseStrictBoolean(parsed.preferences?.isFresher, false),
+        totalExperienceYears: parseOptionalNumber(parsed.preferences?.totalExperienceYears),
+        noticePeriodDays: parseOptionalNumber(parsed.preferences?.noticePeriodDays),
+        immediateJoiner: parseStrictBoolean(parsed.preferences?.immediateJoiner, false),
+        currentCtcLpa: parseOptionalNumber(parsed.preferences?.currentCtcLpa),
+        expectedCtcLpa: parseOptionalNumber(parsed.preferences?.expectedCtcLpa),
+        currency: String(parsed.preferences?.currency || 'INR'),
+        preferredCities: Array.isArray(parsed.preferences?.preferredCities)
+          ? parsed.preferences.preferredCities.map(String)
+          : [],
+        willingToRelocate: parseStrictBoolean(parsed.preferences?.willingToRelocate, false),
         workMode: parsed.preferences?.workMode || '',
-        workAuthorization: parsed.preferences?.workAuthorization || '',
-        requiresSponsorship: Boolean(parsed.preferences?.requiresSponsorship),
+        workAuthorization: String(parsed.preferences?.workAuthorization || '').trim(),
+        requiresSponsorship:
+          parsed.preferences?.requiresSponsorship !== undefined
+            ? parseStrictBoolean(parsed.preferences?.requiresSponsorship, false)
+            : undefined,
       },
     };
 

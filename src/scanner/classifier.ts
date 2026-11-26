@@ -18,6 +18,8 @@ export function classifyInputElement(element: Element): InputClassification {
     const inputType = (element.getAttribute('type') || 'text').toLowerCase();
 
     switch (inputType) {
+      case 'password':
+        return 'password';
       case 'email':
         return 'email';
       case 'tel':
@@ -45,14 +47,18 @@ export function classifyInputElement(element: Element): InputClassification {
       case 'image':
         return 'unknown';
       default:
-        return 'text';
+        // Do not blindly treat unknown types as text; if it's not a recognized input, return unknown
+        return 'unknown';
     }
   }
 
-  // Detect custom ARIA dropdown comboboxes
+  // Detect custom ARIA dropdown comboboxes & Workday / Ashby custom selects
   if (
     element.getAttribute('role') === 'combobox' ||
-    element.getAttribute('aria-haspopup') === 'listbox'
+    element.getAttribute('aria-haspopup') === 'listbox' ||
+    element.getAttribute('data-automation-id')?.toLowerCase().includes('select') ||
+    element.classList.contains('select2-selection') ||
+    element.classList.contains('chosen-single')
   ) {
     return 'custom-select';
   }
@@ -61,19 +67,35 @@ export function classifyInputElement(element: Element): InputClassification {
 }
 
 /**
- * Checks if an element is visually displayed.
+ * Checks if an element and all its ancestor containers are visually displayed.
  */
 export function isElementVisible(element: HTMLElement): boolean {
   if (element.getAttribute('type') === 'hidden') return false;
   if (element.hidden || element.getAttribute('aria-hidden') === 'true') return false;
 
-  // In standard browser environment with layout engine:
-  if (typeof window !== 'undefined' && element.ownerDocument.defaultView) {
-    const style = element.ownerDocument.defaultView.getComputedStyle(element);
-    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+  // Check element and all ancestors for visibility
+  let curr: HTMLElement | null = element;
+  while (curr && curr !== element.ownerDocument.body) {
+    if (curr.hidden || curr.getAttribute('aria-hidden') === 'true') {
       return false;
     }
-    // Only check bounding client rect if layout is rendered (real browser)
+
+    if (typeof window !== 'undefined' && curr.ownerDocument.defaultView) {
+      const style = curr.ownerDocument.defaultView.getComputedStyle(curr);
+      if (
+        style.display === 'none' ||
+        style.visibility === 'hidden' ||
+        style.opacity === '0' ||
+        style.visibility === 'collapse'
+      ) {
+        return false;
+      }
+    }
+    curr = curr.parentElement;
+  }
+
+  // Check bounding rect if available in full browser layout
+  if (typeof window !== 'undefined' && element.ownerDocument.defaultView) {
     const rect = element.getBoundingClientRect();
     if (rect && (rect.width > 0 || rect.height > 0)) {
       return true;

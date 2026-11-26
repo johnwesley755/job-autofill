@@ -30,10 +30,12 @@ export interface SavedAnswer {
 const DB_NAME = 'autoapply_db';
 const DB_VERSION = 1;
 
-class AutoApplyDatabase {
+export const MAX_RESUME_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB limit standard across ATS systems
+
+export class AutoApplyDatabase {
   private dbPromise: Promise<IDBDatabase> | null = null;
 
-  private getDB(): Promise<IDBDatabase> {
+  public getDB(): Promise<IDBDatabase> {
     if (this.dbPromise) return this.dbPromise;
 
     this.dbPromise = new Promise((resolve, reject) => {
@@ -58,8 +60,23 @@ class AutoApplyDatabase {
         }
       };
 
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const db = request.result;
+        db.onversionchange = () => {
+          db.close();
+          this.dbPromise = null;
+        };
+        resolve(db);
+      };
+
+      request.onerror = () => {
+        this.dbPromise = null;
+        reject(request.error);
+      };
+
+      request.onblocked = () => {
+        console.warn('[AutoApply DB] IndexedDB open blocked by existing connection');
+      };
     });
 
     return this.dbPromise;
@@ -72,8 +89,10 @@ class AutoApplyDatabase {
       const tx = db.transaction('resumes', 'readonly');
       const store = tx.objectStore('resumes');
       const req = store.getAll();
+
       req.onsuccess = () => resolve(req.result || []);
-      req.onerror = () => reject(req.error);
+      req.onerror = () => reject(req.error || new Error('Failed to retrieve resumes'));
+      tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
     });
   }
 
@@ -83,18 +102,29 @@ class AutoApplyDatabase {
       const tx = db.transaction('resumes', 'readonly');
       const store = tx.objectStore('resumes');
       const req = store.get(id);
+
       req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
+      req.onerror = () => reject(req.error || new Error(`Failed to retrieve resume ${id}`));
+      tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
     });
   }
 
   async saveResume(resume: ResumeDocument): Promise<void> {
+    if (resume.size > MAX_RESUME_SIZE_BYTES) {
+      throw new Error(`Resume exceeds maximum allowed size of 5 MB (${(resume.size / (1024 * 1024)).toFixed(1)} MB)`);
+    }
+
+    const lowerName = resume.name.toLowerCase();
+    if (!lowerName.endsWith('.pdf') && !lowerName.endsWith('.docx')) {
+      throw new Error('Unsupported format. Only .pdf and .docx resume documents are supported.');
+    }
+
     const db = await this.getDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction('resumes', 'readwrite');
       const store = tx.objectStore('resumes');
 
-      // If marked as default, unmark others
+      // If marked as default, unmark any existing defaults
       if (resume.isDefault) {
         const allReq = store.getAll();
         allReq.onsuccess = () => {
@@ -112,7 +142,8 @@ class AutoApplyDatabase {
       }
 
       tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
+      tx.onerror = () => reject(tx.error || new Error('Failed to save resume'));
+      tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
     });
   }
 
@@ -121,9 +152,28 @@ class AutoApplyDatabase {
     return new Promise((resolve, reject) => {
       const tx = db.transaction('resumes', 'readwrite');
       const store = tx.objectStore('resumes');
-      store.delete(id);
+
+      const getReq = store.get(id);
+      getReq.onsuccess = () => {
+        const target = getReq.result as ResumeDocument | undefined;
+        store.delete(id);
+
+        // If deleted resume was default, reassign default to first remaining resume
+        if (target && target.isDefault) {
+          const allReq = store.getAll();
+          allReq.onsuccess = () => {
+            const list: ResumeDocument[] = (allReq.result || []).filter((r) => r.id !== id);
+            if (list.length > 0) {
+              list[0].isDefault = true;
+              store.put(list[0]);
+            }
+          };
+        }
+      };
+
       tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
+      tx.onerror = () => reject(tx.error || new Error('Failed to delete resume'));
+      tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
     });
   }
 
@@ -133,15 +183,25 @@ class AutoApplyDatabase {
       const tx = db.transaction('resumes', 'readwrite');
       const store = tx.objectStore('resumes');
       const allReq = store.getAll();
+
       allReq.onsuccess = () => {
         const list: ResumeDocument[] = allReq.result || [];
+        const found = list.some((r) => r.id === id);
+        if (!found) {
+          tx.abort();
+          reject(new Error(`Resume with ID ${id} not found`));
+          return;
+        }
+
         for (const item of list) {
           item.isDefault = item.id === id;
           store.put(item);
         }
       };
+
       tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
+      tx.onerror = () => reject(tx.error || new Error('Failed to set default resume'));
+      tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
     });
   }
 
@@ -152,8 +212,10 @@ class AutoApplyDatabase {
       const tx = db.transaction('saved_answers', 'readonly');
       const store = tx.objectStore('saved_answers');
       const req = store.getAll();
+
       req.onsuccess = () => resolve(req.result || []);
-      req.onerror = () => reject(req.error);
+      req.onerror = () => reject(req.error || new Error('Failed to retrieve saved answers'));
+      tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
     });
   }
 
@@ -163,8 +225,10 @@ class AutoApplyDatabase {
       const tx = db.transaction('saved_answers', 'readwrite');
       const store = tx.objectStore('saved_answers');
       store.put(answer);
+
       tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
+      tx.onerror = () => reject(tx.error || new Error('Failed to save answer'));
+      tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
     });
   }
 
@@ -174,8 +238,10 @@ class AutoApplyDatabase {
       const tx = db.transaction('saved_answers', 'readwrite');
       const store = tx.objectStore('saved_answers');
       store.delete(id);
+
       tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
+      tx.onerror = () => reject(tx.error || new Error('Failed to delete answer'));
+      tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
     });
   }
 }

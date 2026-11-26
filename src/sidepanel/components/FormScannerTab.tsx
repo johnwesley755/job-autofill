@@ -1,19 +1,21 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, CheckCircle2, AlertTriangle, HelpCircle } from 'lucide-react';
 import { DetectedField } from '../../scanner/types';
 
 export const FormScannerTab: React.FC = () => {
   const [isScanning, setIsScanning] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [hasDynamicUpdate, setHasDynamicUpdate] = useState(false);
   const [scanResult, setScanResult] = useState<{
     url: string;
     domain: string;
     fields: DetectedField[];
   } | null>(null);
 
-  const scanCurrentTab = () => {
+  const scanCurrentTab = useCallback((isAuto = false) => {
     setIsScanning(true);
     setErrorMessage(null);
+    if (!isAuto) setHasDynamicUpdate(false);
 
     if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.query) {
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -55,7 +57,6 @@ export const FormScannerTab: React.FC = () => {
         });
       });
     } else {
-      // Local dev mode without synthetic fake ATS claims
       setTimeout(() => {
         setIsScanning(false);
         setScanResult({
@@ -65,7 +66,25 @@ export const FormScannerTab: React.FC = () => {
         });
       }, 300);
     }
-  };
+  }, []);
+
+  // Listen for dynamic form mutations broadcast by background worker
+  useEffect(() => {
+    const handleRuntimeMessage = (message: any) => {
+      if (message.type === 'TAB_FORM_MUTATED') {
+        setHasDynamicUpdate(true);
+        // Automatically re-scan to keep fields up to date without submitting
+        scanCurrentTab(true);
+      }
+    };
+
+    if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
+      chrome.runtime.onMessage.addListener(handleRuntimeMessage);
+      return () => {
+        chrome.runtime.onMessage.removeListener(handleRuntimeMessage);
+      };
+    }
+  }, [scanCurrentTab]);
 
   const highConfidenceCount = scanResult?.fields.filter((f) => f.confidenceTier === 'high').length || 0;
   const reviewCount = scanResult?.fields.filter((f) => f.confidenceTier === 'medium').length || 0;
@@ -73,6 +92,19 @@ export const FormScannerTab: React.FC = () => {
 
   return (
     <div className="space-y-4">
+      {/* Dynamic update indicator */}
+      {hasDynamicUpdate && (
+        <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-850 p-2 rounded-lg text-xs text-blue-700 dark:text-blue-300 flex items-center justify-between">
+          <span>Form fields updated dynamically on the active page.</span>
+          <button
+            onClick={() => scanCurrentTab(false)}
+            className="text-[11px] font-semibold underline hover:text-blue-800"
+          >
+            Re-sync
+          </button>
+        </div>
+      )}
+
       {/* Target status banner */}
       <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 space-y-3">
         <div className="flex items-center justify-between">
@@ -85,7 +117,7 @@ export const FormScannerTab: React.FC = () => {
           </div>
 
           <button
-            onClick={scanCurrentTab}
+            onClick={() => scanCurrentTab(false)}
             disabled={isScanning}
             className="flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-medium shadow-sm transition disabled:opacity-50"
           >
