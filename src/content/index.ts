@@ -13,8 +13,25 @@ console.log('[AutoApply] Universal Form Scanner and Autofill script loaded on:',
 const scanner = new UniversalFormScanner(document);
 const isIframe = window !== window.top;
 
+/**
+ * Checks if the extension context is still valid.
+ * When an extension is reloaded or updated in Chrome, existing content scripts
+ * in already-opened tabs become orphaned and chrome.runtime.id becomes undefined.
+ */
+function isExtensionValid(): boolean {
+  try {
+    return Boolean(typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id);
+  } catch {
+    return false;
+  }
+}
+
 // Listen for messages from Background, Popup, or Dashboard
 chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+  if (!isExtensionValid()) {
+    return false;
+  }
+
   if (request.type === 'PING_CONTENT') {
     sendResponse({
       status: 'READY',
@@ -116,6 +133,13 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
 let mutationTimeout: any = null;
 
 const observer = new MutationObserver((mutations) => {
+  // If the extension was reloaded in chrome://extensions, safely disconnect the observer
+  if (!isExtensionValid()) {
+    observer.disconnect();
+    if (mutationTimeout) clearTimeout(mutationTimeout);
+    return;
+  }
+
   let hasRelevantChange = false;
 
   for (const m of mutations) {
@@ -149,14 +173,24 @@ const observer = new MutationObserver((mutations) => {
   if (hasRelevantChange) {
     if (mutationTimeout) clearTimeout(mutationTimeout);
     mutationTimeout = setTimeout(() => {
-      chrome.runtime
-        .sendMessage({
-          type: 'DYNAMIC_FORM_CHANGED',
-          url: window.location.href,
-        })
-        .catch(() => {
-          // Dashboard or popup may not be active; suppress harmless error
-        });
+      if (!isExtensionValid()) {
+        observer.disconnect();
+        return;
+      }
+
+      try {
+        chrome.runtime
+          .sendMessage({
+            type: 'DYNAMIC_FORM_CHANGED',
+            url: window.location.href,
+          })
+          .catch(() => {
+            // Dashboard or popup may not be active; suppress harmless error
+          });
+      } catch {
+        // If extension context invalidated during dispatch, cleanly disconnect
+        observer.disconnect();
+      }
     }, 500);
   }
 });

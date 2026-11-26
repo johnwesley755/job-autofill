@@ -65,22 +65,23 @@ test.describe('Chrome Extension End-to-End in Chromium', () => {
     await dashboardPage.close();
   });
 
-  test('Toolbar click opens and focuses existing standalone dashboard rather than duplicating', async ({ context, extensionId }) => {
-    const page1 = await context.newPage();
-    await page1.goto(`chrome-extension://${extensionId}/app.html`);
-    await page1.waitForLoadState('networkidle');
+  test('Extension popup renders cleanly with enable toggle and detailed dashboard bridge', async ({ context, extensionId }) => {
+    const popupPage = await context.newPage();
+    await popupPage.goto(`chrome-extension://${extensionId}/popup.html`);
+    await popupPage.waitForLoadState('networkidle');
 
-    // Verify service worker openOrFocusDashboard focuses existing page
-    const [background] = context.serviceWorkers();
-    const focused = await background.evaluate(async (extId) => {
-      const dashboardUrl = `chrome-extension://${extId}/app.html`;
-      const tabs = await chrome.tabs.query({});
-      const existing = tabs.find((t) => t.url && t.url.startsWith(dashboardUrl));
-      return existing !== undefined;
-    }, extensionId);
+    await expect(popupPage.getByRole('heading', { name: 'AutoApply' })).toBeVisible();
+    await expect(popupPage.getByText('Autofill Companion')).toBeVisible();
 
-    expect(focused).toBe(true);
-    await page1.close();
+    // Check Detailed View / Dashboard button exists
+    const dashboardBtn = popupPage.getByRole('button', { name: /Full Dashboard|Dashboard/i });
+    await expect(dashboardBtn).toBeVisible();
+
+    // Check Enable toggle button exists
+    const enableToggle = popupPage.getByRole('button', { name: /Enabled|Paused/i });
+    await expect(enableToggle).toBeVisible();
+
+    await popupPage.close();
   });
 
   test('Target tab locking and scan session validation blocks arbitrary external tabs', async ({ context, extensionId }) => {
