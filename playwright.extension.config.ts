@@ -6,7 +6,7 @@ export default defineConfig({
   workers: 1, // Extensions must run single-worker to avoid context collisions
   reporter: 'list',
   use: {
-    headless: false, // Chrome extensions with service workers require non-headless or new headless
+    headless: false,
     trace: 'on-first-retry',
   },
 });

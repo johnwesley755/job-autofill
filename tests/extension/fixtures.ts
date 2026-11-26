@@ -12,9 +12,12 @@ export const test = base.extend<{
 }>({
   context: async ({}, use) => {
     // Launch Chromium with the unpacked extension loaded from dist/
+    // On Linux without a display server (e.g. CI without xvfb), support --headless=new with extension loading
+    const isHeadless = process.env.HEADLESS === 'true';
     const context = await chromium.launchPersistentContext('', {
-      headless: false,
+      headless: isHeadless,
       args: [
+        ...(isHeadless ? ['--headless=new'] : []),
         `--disable-extensions-except=${pathToExtension}`,
         `--load-extension=${pathToExtension}`,
       ],

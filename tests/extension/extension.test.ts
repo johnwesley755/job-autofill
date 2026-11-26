@@ -35,8 +35,8 @@ test.describe('Chrome Extension End-to-End in Chromium', () => {
     // Check main dashboard sections
     await expect(page.getByText('WORKSPACE')).toBeVisible();
     await expect(page.getByText('APPLICATION TOOLS')).toBeVisible();
-    await expect(page.getByText('Candidate Profile')).toBeVisible();
-    await expect(page.getByText('Resume Repository')).toBeVisible();
+    await expect(page.getByText('Candidate Profile', { exact: true })).toBeVisible();
+    await expect(page.getByText('Resume Repository', { exact: true })).toBeVisible();
 
     await page.close();
   });
