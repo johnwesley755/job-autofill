@@ -1,6 +1,7 @@
 /**
  * AutoApply Content Script
- * Modular Scanner and Autofill Engine coordinator.
+ * Modular Scanner and Autofill Engine coordinator with frame awareness,
+ * session target locking validation, and dynamic mutation observing.
  */
 
 import { UniversalFormScanner } from '../scanner/formScanner';
@@ -10,29 +11,31 @@ import { FillApprovedFieldsRequest, FillApprovedFieldsResponse } from '../messag
 console.log('[AutoApply] Universal Form Scanner and Autofill script loaded on:', window.location.href);
 
 const scanner = new UniversalFormScanner(document);
+const isIframe = window !== window.top;
 
-// Listen for messages from Popup or Dashboard
+// Listen for messages from Background, Popup, or Dashboard
 chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   if (request.type === 'PING_CONTENT') {
     sendResponse({
       status: 'READY',
       url: window.location.href,
       title: document.title,
-      isIframe: window !== window.top,
+      isIframe,
     });
     return true;
   }
 
   if (request.type === 'SCAN_FORM_SUMMARY') {
     const summary = scanner.scan();
+    summary.url = window.location.href;
     sendResponse(summary);
     return true;
   }
 
-  // Unified contract for fill execution
+  // Unified contract for fill execution with target context validation
   if (request.type === 'FILL_APPROVED_FIELDS') {
     const req = request as FillApprovedFieldsRequest;
-    const { sessionId, instructions } = req;
+    const { sessionId, instructions, targetContext } = req;
 
     if (!sessionId) {
       const errRes: FillApprovedFieldsResponse = {
@@ -41,6 +44,32 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
       };
       sendResponse(errRes);
       return true;
+    }
+
+    // Phase 2: Validate Target Context Locking
+    if (targetContext) {
+      if (targetContext.scanSessionId && targetContext.scanSessionId !== sessionId) {
+        sendResponse({
+          success: false,
+          error: `Mismatched scan session ID in target lock. Expected: ${targetContext.scanSessionId}, Got: ${sessionId}`,
+        });
+        return true;
+      }
+
+      // Check URL consistency
+      try {
+        const currentOrigin = new URL(window.location.href).origin;
+        const targetOrigin = new URL(targetContext.url).origin;
+        if (currentOrigin !== targetOrigin) {
+          sendResponse({
+            success: false,
+            error: `Target URL origin mismatch. Current: ${currentOrigin}, Target: ${targetOrigin}`,
+          });
+          return true;
+        }
+      } catch {
+        // Ignore parsing errors for relative URLs
+      }
     }
 
     if (!instructions || !Array.isArray(instructions) || instructions.length === 0) {
@@ -62,19 +91,21 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
       scanTimeValue: i.scanTimeValue,
     }));
 
-    try {
-      const report = executeFillInstructions(sessionId, fillInstructions);
-      const successRes: FillApprovedFieldsResponse = {
-        success: true,
-        report,
-      };
-      sendResponse(successRes);
-    } catch (err: any) {
-      sendResponse({
-        success: false,
-        error: err.message || 'Execution failed in content script.',
-      });
-    }
+    (async () => {
+      try {
+        const report = await executeFillInstructions(sessionId, fillInstructions);
+        const successRes: FillApprovedFieldsResponse = {
+          success: true,
+          report,
+        };
+        sendResponse(successRes);
+      } catch (err: any) {
+        sendResponse({
+          success: false,
+          error: err.message || 'Execution failed in content script.',
+        });
+      }
+    })();
     return true;
   }
 
@@ -93,8 +124,8 @@ const observer = new MutationObserver((mutations) => {
         for (const node of Array.from(m.addedNodes).concat(Array.from(m.removedNodes))) {
           if (node instanceof HTMLElement) {
             if (
-              node.matches?.('input, select, textarea, form, [role="combobox"], [role="radiogroup"], label, legend') ||
-              node.querySelector?.('input, select, textarea, [role="combobox"], [role="radiogroup"], label, legend')
+              node.matches?.('input, select, textarea, form, [role="combobox"], [role="radiogroup"], [role="listbox"], label, legend') ||
+              node.querySelector?.('input, select, textarea, [role="combobox"], [role="radiogroup"], [role="listbox"], label, legend')
             ) {
               hasRelevantChange = true;
               break;
@@ -104,37 +135,29 @@ const observer = new MutationObserver((mutations) => {
       }
     } else if (m.type === 'attributes') {
       const target = m.target as HTMLElement;
-      const attr = m.attributeName || '';
       if (
-        attr === 'disabled' ||
-        attr === 'readonly' ||
-        attr === 'required' ||
-        attr.startsWith('aria-') ||
-        attr === 'hidden' ||
-        attr === 'style'
+        target.matches?.('input, select, textarea, [role="combobox"], [role="radio"], [role="checkbox"]') &&
+        ['value', 'checked', 'disabled', 'readonly', 'aria-checked', 'aria-expanded'].includes(m.attributeName || '')
       ) {
-        if (target.matches?.('input, select, textarea, [role="combobox"], [role="radiogroup"], label, legend')) {
-          hasRelevantChange = true;
-          break;
-        }
-      }
-    } else if (m.type === 'characterData') {
-      const parent = (m.target as Node).parentElement;
-      if (parent && (parent.tagName === 'LABEL' || parent.tagName === 'LEGEND' || parent.closest('label, legend'))) {
         hasRelevantChange = true;
-        break;
       }
     }
+
     if (hasRelevantChange) break;
   }
 
   if (hasRelevantChange) {
     if (mutationTimeout) clearTimeout(mutationTimeout);
     mutationTimeout = setTimeout(() => {
-      chrome.runtime.sendMessage({ type: 'DYNAMIC_FORM_CHANGED' }).catch(() => {
-        // Suppress errors when popup/dashboard is closed
-      });
-    }, 400);
+      chrome.runtime
+        .sendMessage({
+          type: 'DYNAMIC_FORM_CHANGED',
+          url: window.location.href,
+        })
+        .catch(() => {
+          // Dashboard or popup may not be active; suppress harmless error
+        });
+    }, 500);
   }
 });
 
@@ -142,6 +165,5 @@ observer.observe(document.body || document.documentElement, {
   childList: true,
   subtree: true,
   attributes: true,
-  attributeFilter: ['disabled', 'readonly', 'required', 'aria-disabled', 'aria-required', 'aria-hidden', 'hidden', 'style'],
-  characterData: true,
+  attributeFilter: ['disabled', 'readonly', 'aria-checked', 'aria-expanded', 'class'],
 });

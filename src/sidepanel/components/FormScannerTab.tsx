@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Play, CheckCircle2, AlertTriangle, HelpCircle, FileCheck2, ArrowRight, Globe } from 'lucide-react';
+import { Play, AlertTriangle, FileCheck2, ArrowRight, Globe } from 'lucide-react';
 import { DetectedField } from '../../scanner/types';
 import { useProfileStore } from '../../store/profileStore';
 import { createProposedFieldFills, ProposedFieldFill } from '../../filling/fieldValueMapper';
 import { FillReviewTab } from './FillReviewTab';
 import { FillSessionReport } from '../../filling/fillCoordinator';
-import { GetActiveApplicationTabResponse } from '../../messaging/protocol';
+import { GetActiveApplicationTabResponse, PersistentScanTargetContext } from '../../messaging/protocol';
 
 export type AssistantWorkflowState =
   | 'idle'
@@ -29,8 +29,9 @@ export const FormScannerTab: React.FC = () => {
   const [proposedFills, setProposedFills] = useState<ProposedFieldFill[]>([]);
   const [, setLastReport] = useState<FillSessionReport | null>(null);
 
-  // Target tab state
+  // Target tab & persistent target context state
   const [targetTab, setTargetTab] = useState<GetActiveApplicationTabResponse | null>(null);
+  const [targetContext, setTargetContext] = useState<PersistentScanTargetContext | null>(null);
   const [scanResult, setScanResult] = useState<{
     url: string;
     domain: string;
@@ -96,7 +97,7 @@ export const FormScannerTab: React.FC = () => {
       const tabId = tabRes.tabId;
       setWorkflowState('scanning');
 
-      // Step 2: Send SCAN_FORM_SUMMARY to content script on that tab
+      // Step 2: Query content script on tab (and eligible frames)
       chrome.tabs.sendMessage(tabId, { type: 'SCAN_FORM_SUMMARY' }, (response) => {
         if (chrome.runtime.lastError) {
           setWorkflowState('content_script_unavailable');
@@ -107,16 +108,32 @@ export const FormScannerTab: React.FC = () => {
         }
 
         if (response && response.fields) {
+          const sessionId = response.scanSessionId || `session-${Date.now()}`;
+          const currentUrl = response.url || tabRes.url || '';
+          const currentDomain = response.domain || tabRes.domain || 'job page';
+
+          // Lock persistent target context for autofill execution
+          setTargetContext({
+            tabId,
+            url: currentUrl,
+            title: tabRes.title || '',
+            domain: currentDomain,
+            platformId: response.platformId || 'generic',
+            scanSessionId: sessionId,
+            revision: response.revision || 1,
+            timestamp: new Date().toISOString(),
+          });
+
           setScanResult({
-            url: response.url || tabRes.url || '',
-            domain: response.domain || 'job page',
-            scanSessionId: response.scanSessionId || `session-${Date.now()}`,
+            url: currentUrl,
+            domain: currentDomain,
+            scanSessionId: sessionId,
             fields: response.fields,
           });
         } else {
           setScanResult({
             url: tabRes.url || '',
-            domain: 'job page',
+            domain: tabRes.domain || 'job page',
             scanSessionId: `empty-${Date.now()}`,
             fields: [],
           });
@@ -129,9 +146,7 @@ export const FormScannerTab: React.FC = () => {
   const reviewCount = proposedFills.filter(
     (f) => f.confidenceTier === 'medium' || f.isAmbiguous || f.hasConflictOrWarning
   ).length;
-  const unknownCount = proposedFills.filter(
-    (f) => f.confidenceTier === 'low'
-  ).length;
+  const unknownCount = proposedFills.filter((f) => f.confidenceTier === 'low').length;
 
   const sessionId = scanResult?.scanSessionId || '';
 
@@ -167,7 +182,7 @@ export const FormScannerTab: React.FC = () => {
       {/* Dynamic update indicator */}
       {hasDynamicUpdate && (
         <div className="bg-accent-subtle border border-border-subtle p-3 rounded-lg text-xs text-accent flex items-center justify-between">
-          <span>Form fields changed on the target page. Click to re-sync.</span>
+          <span>Form fields changed on the target page. Prior scan session invalidated. Click to re-sync.</span>
           <button
             onClick={handleStartAutofilling}
             className="text-xs font-semibold underline hover:text-accent-hover"
@@ -182,6 +197,7 @@ export const FormScannerTab: React.FC = () => {
         <FillReviewTab
           proposedFills={proposedFills}
           sessionId={sessionId}
+          targetContext={targetContext}
           onRefreshScan={handleStartAutofilling}
           onFillComplete={(report) => {
             setLastReport(report);
@@ -248,118 +264,88 @@ export const FormScannerTab: React.FC = () => {
             {/* Scan Results Summary */}
             {scanResult && (
               <div className="bg-subtle p-4 rounded-lg border border-border-subtle text-xs space-y-2">
-                <div className="flex justify-between items-center">
-                  <span className="text-text-muted">Domain / Platform:</span>
-                  <span className="font-semibold text-text-primary">{scanResult.domain}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-text-muted">Detected Form Controls:</span>
-                  <span className="font-semibold text-accent tabular-nums">
-                    {scanResult.fields.length} interactive fields
+                <div className="flex items-center justify-between text-text-secondary">
+                  <span>
+                    Scanned <strong>{scanResult.domain}</strong>
                   </span>
+                  <span className="text-[11px] text-text-muted">Session: {scanResult.scanSessionId}</span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 pt-2">
+                  <div className="p-2.5 bg-surface rounded-lg border border-border-subtle">
+                    <span className="text-text-muted block text-[10px] font-semibold uppercase">High Confidence</span>
+                    <span className="text-sm font-bold text-success">{highConfidenceCount}</span>
+                  </div>
+                  <div className="p-2.5 bg-surface rounded-lg border border-border-subtle">
+                    <span className="text-text-muted block text-[10px] font-semibold uppercase">Needs Review</span>
+                    <span className="text-sm font-bold text-accent">{reviewCount}</span>
+                  </div>
+                  <div className="p-2.5 bg-surface rounded-lg border border-border-subtle">
+                    <span className="text-text-muted block text-[10px] font-semibold uppercase">Unmatched</span>
+                    <span className="text-sm font-bold text-text-muted">{unknownCount}</span>
+                  </div>
+                </div>
+
+                <div className="pt-2 flex justify-end">
+                  <button
+                    onClick={() => setActiveSubTab('review')}
+                    className="inline-flex items-center gap-1.5 text-xs text-accent font-semibold hover:underline"
+                  >
+                    <span>Proceed to Review & Fill</span>
+                    <ArrowRight size={13} />
+                  </button>
                 </div>
               </div>
             )}
           </div>
 
-          {/* Metrics overview when scanned */}
-          {scanResult && scanResult.fields.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
-              <div className="bg-surface p-4 rounded-xl border border-border-subtle">
-                <div className="text-text-muted text-[11px] uppercase tracking-wider font-semibold">High Confidence</div>
-                <div className="text-xl font-bold text-success mt-2 flex items-center gap-1.5 tabular-nums">
-                  <CheckCircle2 size={16} />
-                  <span>{highConfidenceCount}</span>
-                </div>
-              </div>
-
-              <div className="bg-surface p-4 rounded-xl border border-border-subtle">
-                <div className="text-text-muted text-[11px] uppercase tracking-wider font-semibold">Needs Review</div>
-                <div className="text-xl font-bold text-warning mt-2 flex items-center gap-1.5 tabular-nums">
-                  <AlertTriangle size={16} />
-                  <span>{reviewCount}</span>
-                </div>
-              </div>
-
-              <div className="bg-surface p-4 rounded-xl border border-border-subtle">
-                <div className="text-text-muted text-[11px] uppercase tracking-wider font-semibold">Unmatched / Custom</div>
-                <div className="text-xl font-bold text-text-muted mt-2 flex items-center gap-1.5 tabular-nums">
-                  <HelpCircle size={16} />
-                  <span>{unknownCount}</span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Review Banner Link */}
-          {proposedFills.length > 0 && (
-            <div className="p-4 bg-accent-subtle border border-border-subtle rounded-xl flex items-center justify-between">
-              <div>
-                <div className="text-xs font-semibold text-accent">
-                  {proposedFills.filter((f) => f.isEligibleForPreselection).length} of {proposedFills.length} Fields Ready for Fill
-                </div>
-                <div className="text-[11px] text-text-secondary mt-0.5">
-                  Inspect proposed values, check warnings, and click Fill Approved Fields.
-                </div>
-              </div>
-              <button
-                onClick={() => setActiveSubTab('review')}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg text-xs font-medium shadow-xs transition"
-              >
-                <span>Review Fields</span>
-                <ArrowRight size={13} />
-              </button>
-            </div>
-          )}
-
-          {/* Field Breakdown List */}
+          {/* Detected Fields List */}
           {scanResult && scanResult.fields.length > 0 && (
             <div className="space-y-3">
-              <div className="text-xs font-semibold text-text-primary tracking-wide">
-                Detected Elements ({scanResult.fields.length})
-              </div>
-              <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                {scanResult.fields.map((field) => (
-                  <div
-                    key={field.id}
-                    className="p-3 rounded-lg bg-surface border border-border-subtle text-xs flex justify-between items-center gap-3"
-                  >
-                    <div className="truncate min-w-0">
-                      <div className="font-medium text-text-primary truncate">
-                        {field.label || field.placeholder || field.name || 'Unnamed control'}
+              <h3 className="text-xs font-semibold text-text-primary uppercase tracking-wider">
+                Scanned Controls ({scanResult.fields.length})
+              </h3>
+              <div className="space-y-2">
+                {scanResult.fields.map((f) => (
+                  <div key={f.id} className="p-3.5 bg-surface rounded-xl border border-border-subtle text-xs flex items-center justify-between gap-4">
+                    <div className="space-y-0.5 truncate">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-text-primary truncate">{f.label || 'Unnamed Question'}</span>
+                        {f.isRequired && (
+                          <span className="text-danger font-bold text-xs" title="Required field">*</span>
+                        )}
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-subtle text-text-secondary border border-border-subtle">
+                          {f.type}
+                        </span>
+                        {f.platformId && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent-subtle text-accent border border-border-subtle">
+                            {f.platformId}
+                          </span>
+                        )}
                       </div>
-                      <div className="text-[11px] text-text-muted mt-0.5">
-                        Type: {field.type} {field.isRequired ? '• Required' : ''}
-                      </div>
+                      <p className="text-[11px] text-text-muted truncate">
+                        Mapped profile field: <code className="text-text-secondary font-mono">{f.mappedProfileKey || 'unmapped'}</code>
+                      </p>
                     </div>
 
-                    <span
-                      className={`px-2 py-0.5 rounded text-[11px] font-medium shrink-0 ${
-                        field.confidenceTier === 'high'
-                          ? 'bg-success-subtle text-success'
-                          : field.confidenceTier === 'medium'
-                          ? 'bg-warning-subtle text-warning'
-                          : 'bg-subtle text-text-muted'
-                      }`}
-                    >
-                      {field.mappedProfileKey || 'unmapped'}
-                    </span>
+                    <div className="shrink-0 flex items-center gap-2">
+                      <span
+                        className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                          f.confidenceTier === 'high'
+                            ? 'bg-success-subtle text-success'
+                            : f.confidenceTier === 'medium'
+                            ? 'bg-accent-subtle text-accent'
+                            : 'bg-subtle text-text-muted'
+                        }`}
+                      >
+                        {f.confidenceTier || 'low'}
+                      </span>
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
           )}
-
-          {/* Safety & Compliance Notice */}
-          <div className="bg-subtle border border-border-subtle p-4 rounded-xl text-xs text-text-secondary space-y-1">
-            <div className="font-semibold flex items-center gap-1.5 text-text-primary">
-              <AlertTriangle size={15} className="text-warning shrink-0" />
-              <span>Automated Submission Prohibited</span>
-            </div>
-            <p className="text-[11px] leading-relaxed">
-              AutoApply will never click Apply or Submit buttons, agree to legal declarations, or attempt CAPTCHA bypassing. All field operations require explicit user approval.
-            </p>
-          </div>
         </>
       )}
     </div>

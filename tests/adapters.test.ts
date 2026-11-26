@@ -5,6 +5,7 @@ import { MicrosoftFormsAdapter } from '../src/adapters/microsoftForms/microsoftF
 import { ZohoFormsAdapter } from '../src/adapters/zohoForms/zohoFormsAdapter';
 import { ZohoRecruitAdapter } from '../src/adapters/zohoRecruit/zohoRecruitAdapter';
 import { KekaAdapter } from '../src/adapters/keka/kekaAdapter';
+import { UniversalFormScanner } from '../src/scanner/formScanner';
 
 describe('Platform Adapter Detection and Extraction', () => {
   let doc: Document;
@@ -92,5 +93,26 @@ describe('Platform Adapter Detection and Extraction', () => {
 
     const foundKeka = adapterRegistry.findAdapter('https://acme.keka.com/careers', doc);
     expect(foundKeka?.platformId).toBe('keka');
+  });
+
+  it('UniversalFormScanner merges adapter fields and generic fields without duplicate registrations', () => {
+    const scanner = new UniversalFormScanner(doc);
+    doc.body.innerHTML = `
+      <form action="formResponse">
+        <div role="listitem">
+          <div role="heading">Full Name *</div>
+          <input type="text" name="entry.1" id="gf_entry_1" value="" />
+        </div>
+        <div class="generic-row">
+          <label for="generic_notes">Additional Comments</label>
+          <textarea id="generic_notes" name="notes"></textarea>
+        </div>
+      </form>
+    `;
+
+    const summary = scanner.scan();
+    expect(summary.fields.length).toBe(2);
+    expect(summary.fields.some((f) => f.label === 'Full Name' && f.platformId === 'google_forms')).toBe(true);
+    expect(summary.fields.some((f) => f.name === 'notes')).toBe(true);
   });
 });

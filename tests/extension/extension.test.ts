@@ -40,4 +40,23 @@ test.describe('Chrome Extension End-to-End in Chromium', () => {
 
     await page.close();
   });
+
+  test('Form Assistant does not scan on load and requires explicit user action', async ({ context, extensionId }) => {
+    const dashboardPage = await context.newPage();
+    await dashboardPage.goto(`chrome-extension://${extensionId}/app.html`);
+    await dashboardPage.waitForLoadState('networkidle');
+
+    // Click on Form Assistant tool
+    await dashboardPage.getByText('Form Assistant').first().click();
+
+    // Verify it is in idle state
+    await expect(dashboardPage.getByText('Ready to scan application form')).toBeVisible();
+    await expect(dashboardPage.getByText('AutoApply never runs automatic scans in the background')).toBeVisible();
+
+    // Verify Start Autofilling button exists
+    const startBtn = dashboardPage.getByRole('button', { name: /Start Autofilling/i });
+    await expect(startBtn).toBeVisible();
+
+    await dashboardPage.close();
+  });
 });

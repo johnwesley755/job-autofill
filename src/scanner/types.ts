@@ -49,12 +49,16 @@ export interface DetectedField {
   testId?: string;
   formId?: string;
   groupName?: string;
+  frameId?: number;
+  platformId?: string;
 }
 
 export interface FormScanSummary {
   scanSessionId: string;
   url: string;
   domain: string;
+  platformId?: string;
+  frameId?: number;
   totalControls: number;
   fields: DetectedField[];
   scannedAt: string;

@@ -14,51 +14,55 @@ export class UniversalFormScanner {
   }
 
   /**
-   * Scans the document for interactive form controls, checking platform adapters
-   * first, and falling back to universal DOM scanning.
+   * Scans the document for interactive form controls by:
+   * 1. Running platform-specific scanning if an adapter matches.
+   * 2. Running generic DOM scanning.
+   * 3. Merging both result sets with DOM element identity deduplication (WeakMap).
+   * 4. Preserving platform metadata and session registration.
    */
   public scan(): FormScanSummary {
     const sessionId = scanRegistry.createSession();
     this.revision++;
 
-    const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
+    const currentUrl = typeof window !== 'undefined' && window.location ? window.location.href : '';
     const adapter = adapterRegistry.findAdapter(currentUrl, this.document);
 
+    const mergedFields: DetectedField[] = [];
+
+    // Step 1: Platform-specific scan if matching adapter exists
     if (adapter) {
-      const adapterFields = adapter.scanFields(this.document, sessionId);
-      if (adapterFields.length > 0) {
-        return {
-          scanSessionId: sessionId,
-          url: currentUrl,
-          domain: typeof window !== 'undefined' ? window.location.hostname : 'unknown',
-          totalControls: adapterFields.length,
-          fields: adapterFields,
-          scannedAt: new Date().toISOString(),
-          revision: this.revision,
-        };
+      const platformFields = adapter.scanFields(this.document, sessionId);
+      for (const pf of platformFields) {
+        pf.platformId = adapter.platformId;
+        mergedFields.push(pf);
       }
     }
 
+    // Step 2: Generic DOM scanning
     const rawElements = Array.from(
       this.document.querySelectorAll(
         'input, select, textarea, [role="combobox"], [aria-haspopup="listbox"]'
       )
     ) as HTMLElement[];
 
-    const detectedFields: DetectedField[] = [];
     const radioGroups = new Map<string, { elements: HTMLInputElement[]; sectionContext: string; label: string; isRequired: boolean }>();
     const checkboxGroups = new Map<string, { elements: HTMLInputElement[]; sectionContext: string; label: string; isRequired: boolean }>();
     const processedElements = new Set<HTMLElement>();
 
     // Pass 1: Identify and group radio buttons and multi-choice checkboxes
     rawElements.forEach((el, index) => {
+      // If already registered by platform adapter, mark processed
+      if (scanRegistry.hasElement(el)) {
+        processedElements.add(el);
+        return;
+      }
+
       const tagName = el.tagName.toLowerCase();
       const type = (el.getAttribute('type') || '').toLowerCase();
 
       if (tagName === 'input' && type === 'radio') {
         const radio = el as HTMLInputElement;
         const name = radio.name || `unnamed-radio-${index}`;
-        // Use form reference or closest form/container identity to prevent collisions between forms
         const formKey = radio.form ? (radio.form.id || radio.form.getAttribute('name') || `form-${Array.from(this.document.forms).indexOf(radio.form)}`) : 'no-form';
         const groupKey = `${formKey}:::${name}`;
 
@@ -92,24 +96,21 @@ export class UniversalFormScanner {
         if (radio.required) group.isRequired = true;
         processedElements.add(radio);
       } else if (tagName === 'input' && type === 'checkbox') {
-        // Group checkboxes only when they share a fieldset or multi-select container with a common legend/question
         const container = el.closest('fieldset, [data-checkbox-group], [role="group"]');
         if (container) {
           const legend = container.querySelector('legend, [class*="label"], [class*="question"]');
           if (legend && legend.textContent) {
-            // Track by exact DOM container element identity using an internal data attribute or WeakMap
-            let containerId = container.getAttribute('data-autoapply-cbgroup');
-            if (!containerId) {
-              containerId = `cbgroup-${index}-${Math.random().toString(36).substring(2, 7)}`;
-              container.setAttribute('data-autoapply-cbgroup', containerId);
-            }
-            const groupKey = `container:::${containerId}`;
+            const groupKey = container.id || `cb-grp-${index}`;
             if (!checkboxGroups.has(groupKey)) {
+              let isRequired = (el as HTMLInputElement).required || el.getAttribute('aria-required') === 'true';
+              let groupLabel = legend.textContent.replace(/[\n\r\t*]+/g, ' ').replace(/:+\s*$/, '').trim();
+              if (legend.textContent.includes('*')) isRequired = true;
+
               checkboxGroups.set(groupKey, {
                 elements: [],
                 sectionContext: extractSectionContext(el),
-                label: legend.textContent.replace(/[\n\r\t*]+/g, ' ').replace(/:+\s*$/, '').trim(),
-                isRequired: el.hasAttribute('required') || legend.textContent.includes('*'),
+                label: groupLabel,
+                isRequired,
               });
             }
             checkboxGroups.get(groupKey)!.elements.push(el as HTMLInputElement);
@@ -119,44 +120,42 @@ export class UniversalFormScanner {
       }
     });
 
-    // Add consolidated radio group representations
+    // Register generic radio groups
     let radioIndex = 0;
-    radioGroups.forEach((group) => {
-      const visible = group.elements.some((r) => isElementVisible(r));
-      if (!visible) return;
+    radioGroups.forEach((group, groupKey) => {
+      if (group.elements.length === 0) return;
+      if (group.elements.some((el) => scanRegistry.hasElement(el))) return;
 
       const firstRadio = group.elements[0];
-      const name = firstRadio.name || undefined;
-      const options: FieldOption[] = group.elements.map((r) => {
-        const optLabel = extractFieldLabelDetails(r).label || r.value;
-        return { label: optLabel, value: r.value, disabled: r.disabled };
+      const fieldId = `generic-radio-group-${radioIndex}-${firstRadio.name || 'unnamed'}`;
+      let checkedValue = '';
+
+      const options: FieldOption[] = group.elements.map((r, optIdx) => {
+        const details = extractFieldLabelDetails(r);
+        const optVal = r.value || details.label || `opt-${optIdx}`;
+        if (r.checked) checkedValue = optVal;
+        return {
+          label: details.label || r.value || `Option ${optIdx + 1}`,
+          value: optVal,
+          disabled: r.disabled,
+        };
       });
 
-      const checkedRadio = group.elements.find((r) => r.checked);
-      const currentValue = checkedRadio ? checkedRadio.value : '';
-
-      const selector = name
-        ? `input[type="radio"][name="${CSS.escape(name)}"]`
-        : `input[type="radio"]`;
-
-      const fieldId = `radio-group-${radioIndex}-${name || 'anon'}`;
       const field: DetectedField = {
         id: fieldId,
         scanSessionId: sessionId,
-        name,
+        name: firstRadio.name,
         type: 'radio-group',
-        label: group.label || name || 'Radio Option',
+        label: group.label,
         isRequired: group.isRequired,
         isDisabled: group.elements.every((r) => r.disabled),
-        isVisible: true,
+        isVisible: group.elements.some((r) => isElementVisible(r)),
         options,
         sectionContext: group.sectionContext,
-        selector,
-        currentValue,
-        groupName: name,
-        automationId: firstRadio.getAttribute('data-automation-id') || undefined,
-        testId: firstRadio.getAttribute('data-testid') || undefined,
-        formId: firstRadio.form?.id || undefined,
+        selector: `input[type="radio"][name="${CSS.escape(firstRadio.name)}"]`,
+        currentValue: checkedValue,
+        groupName: groupKey,
+        formId: firstRadio.form?.id,
       };
 
       const match = matchFieldToProfile(field);
@@ -166,42 +165,45 @@ export class UniversalFormScanner {
       field.isAmbiguous = match.isAmbiguous;
       field.ambiguityReason = match.ambiguityReason;
 
-      // Register into memory registry
-      scanRegistry.register(fieldId, firstRadio, currentValue, group.elements);
-      detectedFields.push(field);
+      scanRegistry.register(fieldId, firstRadio, checkedValue, group.elements);
+      mergedFields.push(field);
       radioIndex++;
     });
 
-    // Add consolidated checkbox group representations
+    // Register generic checkbox groups
     let checkboxIndex = 0;
     checkboxGroups.forEach((group) => {
-      const visible = group.elements.some((c) => isElementVisible(c));
-      if (!visible) return;
+      if (group.elements.length === 0) return;
+      if (group.elements.some((el) => scanRegistry.hasElement(el))) return;
 
       const firstBox = group.elements[0];
-      const options: FieldOption[] = group.elements.map((c) => {
-        const optLabel = extractFieldLabelDetails(c).label || c.value;
-        return { label: optLabel, value: c.value, disabled: c.disabled };
+      const fieldId = `generic-checkbox-group-${checkboxIndex}`;
+      const checkedValues: string[] = [];
+
+      const options: FieldOption[] = group.elements.map((cb, optIdx) => {
+        const details = extractFieldLabelDetails(cb);
+        const optVal = cb.value || details.label || `cb-${optIdx}`;
+        if (cb.checked) checkedValues.push(optVal);
+        return {
+          label: details.label || cb.value || `Option ${optIdx + 1}`,
+          value: optVal,
+          disabled: cb.disabled,
+        };
       });
 
-      const checkedValues = group.elements.filter((c) => c.checked).map((c) => c.value);
-
-      const fieldId = `checkbox-group-${checkboxIndex}`;
       const field: DetectedField = {
         id: fieldId,
         scanSessionId: sessionId,
         type: 'checkbox-group',
         label: group.label,
         isRequired: group.isRequired,
-        isDisabled: group.elements.every((c) => c.disabled),
-        isVisible: true,
+        isDisabled: group.elements.every((cb) => cb.disabled),
+        isVisible: group.elements.some((cb) => isElementVisible(cb)),
         options,
         sectionContext: group.sectionContext,
         selector: `fieldset input[type="checkbox"]`,
         currentValue: checkedValues,
-        automationId: firstBox.getAttribute('data-automation-id') || undefined,
-        testId: firstBox.getAttribute('data-testid') || undefined,
-        formId: firstBox.form?.id || undefined,
+        formId: firstBox.form?.id,
       };
 
       const match = matchFieldToProfile(field);
@@ -212,13 +214,13 @@ export class UniversalFormScanner {
       field.ambiguityReason = match.ambiguityReason;
 
       scanRegistry.register(fieldId, firstBox, checkedValues, group.elements);
-      detectedFields.push(field);
+      mergedFields.push(field);
       checkboxIndex++;
     });
 
     // Pass 2: Process individual inputs, standalone checkboxes, selects, textareas, and comboboxes
     rawElements.forEach((htmlEl, index) => {
-      if (processedElements.has(htmlEl)) return;
+      if (processedElements.has(htmlEl) || scanRegistry.hasElement(htmlEl)) return;
 
       const type = classifyInputElement(htmlEl);
       if (type === 'unknown' || type === 'password') return;
@@ -253,7 +255,6 @@ export class UniversalFormScanner {
       const fieldId = `field-${index}-${elementId || name || 'ctrl'}`;
 
       const tagName = htmlEl.tagName.toLowerCase();
-      // Retrieve current DOM value safely
       let currentValue: string | boolean = '';
       if (type === 'checkbox-group') {
         currentValue = (htmlEl as HTMLInputElement).checked;
@@ -297,15 +298,16 @@ export class UniversalFormScanner {
       field.ambiguityReason = match.ambiguityReason;
 
       scanRegistry.register(fieldId, htmlEl, currentValue);
-      detectedFields.push(field);
+      mergedFields.push(field);
     });
 
     return {
       scanSessionId: sessionId,
-      url: this.document.location ? this.document.location.href : '',
-      domain: this.document.location ? this.document.location.hostname : '',
-      totalControls: rawElements.length,
-      fields: detectedFields,
+      url: currentUrl,
+      domain: typeof window !== 'undefined' && window.location ? window.location.hostname : '',
+      platformId: adapter?.platformId,
+      totalControls: mergedFields.length,
+      fields: mergedFields,
       scannedAt: new Date().toISOString(),
       revision: this.revision,
     };
@@ -340,7 +342,6 @@ export class UniversalFormScanner {
       return `${el.tagName.toLowerCase()}[autocomplete="${CSS.escape(autocomplete)}"]`;
     }
 
-    // Use tag name with section or form scoping to avoid global fragile nth-of-type
     const container = el.closest('form, fieldset, section, div[class*="section"]');
     if (container && container.id) {
       return `#${CSS.escape(container.id)} ${el.tagName.toLowerCase()}`;

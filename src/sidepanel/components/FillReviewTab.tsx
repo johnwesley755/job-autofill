@@ -2,10 +2,12 @@ import React, { useState } from 'react';
 import { ProposedFieldFill } from '../../filling/fieldValueMapper';
 import { FillSessionReport } from '../../filling/fillCoordinator';
 import { AlertTriangle, Play, RefreshCw, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { PersistentScanTargetContext } from '../../messaging/protocol';
 
 interface FillReviewTabProps {
   proposedFills: ProposedFieldFill[];
   sessionId: string;
+  targetContext: PersistentScanTargetContext | null;
   onRefreshScan: () => void;
   onFillComplete?: (report: FillSessionReport) => void;
 }
@@ -13,6 +15,7 @@ interface FillReviewTabProps {
 export const FillReviewTab: React.FC<FillReviewTabProps> = ({
   proposedFills: initialFills,
   sessionId,
+  targetContext,
   onRefreshScan,
   onFillComplete,
 }) => {
@@ -81,6 +84,13 @@ export const FillReviewTab: React.FC<FillReviewTabProps> = ({
     setErrorMessage(null);
     setFillReport(null);
 
+    // Validate persistent scan target context
+    if (!targetContext || !targetContext.tabId) {
+      setIsFilling(false);
+      setErrorMessage('No persistent scan target lock found. Please scan the form again.');
+      return;
+    }
+
     const approvedFills = fills.filter((f) => f.approved);
     if (approvedFills.length === 0) {
       setIsFilling(false);
@@ -97,23 +107,41 @@ export const FillReviewTab: React.FC<FillReviewTabProps> = ({
       overwriteExisting: Boolean(f.isOverwrite),
       isAmbiguous: Boolean(f.isAmbiguous),
       scanSessionId: sessionId,
+      frameId: targetContext.frameId,
     }));
 
-    if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
-      chrome.runtime.sendMessage({ type: 'GET_ACTIVE_APPLICATION_TAB' }, (target) => {
-        const targetTabId = target?.tabId;
-        if (!targetTabId) {
+    if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.get) {
+      // Step 1: Verify the locked target tab still exists and URL origin matches
+      chrome.tabs.get(targetContext.tabId, (currentTab) => {
+        if (chrome.runtime.lastError || !currentTab || !currentTab.url) {
           setIsFilling(false);
-          setErrorMessage('Target application tab is no longer active. Please re-scan.');
+          setErrorMessage('Original target application tab was closed. Re-scan required.');
           return;
         }
 
+        try {
+          const currentOrigin = new URL(currentTab.url).origin;
+          const targetOrigin = new URL(targetContext.url).origin;
+          if (currentOrigin !== targetOrigin) {
+            setIsFilling(false);
+            setErrorMessage(
+              `Target tab navigated to a different site (${currentOrigin} vs ${targetOrigin}). Re-scan required.`
+            );
+            return;
+          }
+        } catch {
+          // Ignore parse errors
+        }
+
+        // Step 2: Route fill instructions with locked context to content script on target tab & frame
         chrome.tabs.sendMessage(
-          targetTabId,
+          targetContext.tabId,
           {
             type: 'FILL_APPROVED_FIELDS',
             sessionId,
             instructions,
+            targetContext,
+            frameId: targetContext.frameId,
           },
           (response) => {
             setIsFilling(false);
@@ -178,147 +206,152 @@ export const FillReviewTab: React.FC<FillReviewTabProps> = ({
             </button>
           </div>
 
-          <button
-            onClick={executeFill}
-            disabled={isFilling || approvedCount === 0}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg text-xs font-medium shadow-xs transition disabled:opacity-50"
-          >
-            <Play size={13} />
-            <span>{isFilling ? 'Filling...' : `Autofill ${approvedCount} Fields`}</span>
-          </button>
-        </div>
-      </div>
+          <div className="flex items-center gap-4">
+            <span className="text-text-secondary font-medium">
+              {approvedCount} of {fills.length} approved
+            </span>
 
-      {errorMessage && (
-        <div className="p-3 rounded-lg bg-danger-subtle border border-border-subtle text-xs text-danger">
-          {errorMessage}
-        </div>
-      )}
-
-      {/* Fill report summary if available */}
-      {fillReport && (
-        <div className="p-4 bg-success-subtle border border-border-subtle rounded-xl text-xs space-y-1">
-          <div className="font-semibold text-success flex items-center gap-1.5">
-            <CheckCircle2 size={16} className="text-success" />
-            <span>Fill Session Complete</span>
-          </div>
-          <div className="text-xs text-text-secondary tabular-nums">
-            Successfully verified: <strong>{fillReport.filledCount}</strong> • Skipped:{' '}
-            <strong>{fillReport.skippedCount}</strong> • Errors: <strong>{fillReport.failedCount}</strong>
-          </div>
-        </div>
-      )}
-
-      {/* Fields List */}
-      <div className="space-y-2.5">
-        {fills.length === 0 ? (
-          <div className="text-xs text-text-muted text-center py-8 bg-surface rounded-xl border border-dashed border-border-subtle p-6">
-            No mappable candidate fields identified on this form.
-          </div>
-        ) : (
-          fills.map((field) => (
-            <div
-              key={field.fieldId}
-              tabIndex={0}
-              role="button"
-              aria-label={`Toggle approval for ${field.label}`}
-              onKeyDown={(e) => {
-                if (e.key === ' ' || e.key === 'Enter') {
-                  e.preventDefault();
-                  toggleApproval(field.fieldId);
-                }
-              }}
-              onClick={() => toggleApproval(field.fieldId)}
-              className={`p-4 rounded-xl border bg-surface text-xs transition cursor-pointer select-none focus:outline-hidden focus:ring-1 focus:ring-accent ${
-                field.approved
-                  ? 'border-accent bg-accent-subtle shadow-xs'
-                  : 'border-border-subtle hover:border-border-strong'
-              }`}
+            <button
+              onClick={executeFill}
+              disabled={isFilling || approvedCount === 0}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg font-semibold text-xs transition disabled:opacity-50 shadow-xs"
             >
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-start gap-3 min-w-0">
-                  <input
-                    type="checkbox"
-                    checked={field.approved}
-                    onChange={() => {}}
-                    disabled={field.isAmbiguous}
-                    className="mt-0.5 h-4 w-4 rounded border-border-subtle text-accent focus:ring-accent cursor-pointer"
-                    aria-label={`Approve fill for ${field.label}`}
-                  />
+              <Play size={13} className={isFilling ? 'animate-spin' : ''} />
+              <span>{isFilling ? 'Filling...' : 'Fill Approved Fields'}</span>
+            </button>
+          </div>
+        </div>
 
-                  <div className="space-y-1 min-w-0">
-                    <div className="font-semibold text-text-primary flex items-center gap-1.5 truncate">
-                      <span className="truncate">{field.label}</span>
-                      <span className="text-[10px] font-mono text-text-muted shrink-0">({field.canonicalKey})</span>
-                    </div>
-
-                    <div className="text-xs text-accent font-medium">
-                      Value: &quot;{String(field.proposedValue)}&quot;
-                    </div>
-
-                    {field.currentValue !== undefined && field.currentValue !== '' && (
-                      <div className="text-[11px] text-text-muted">
-                        Current Page Value: &quot;{String(field.currentValue)}&quot;
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex flex-col items-end gap-1.5 shrink-0">
-                  <span
-                    className={`px-2 py-0.5 rounded text-[10px] font-semibold tabular-nums ${
-                      field.confidenceTier === 'high'
-                        ? 'bg-success-subtle text-success'
-                        : 'bg-warning-subtle text-warning'
-                    }`}
-                  >
-                    {(field.confidenceScore * 100).toFixed(0)}%
-                  </span>
-
-                  {/* Explicit Overwrite Checkbox if field has existing value */}
-                  {field.currentValue !== undefined &&
-                    field.currentValue !== '' &&
-                    !field.isAmbiguous && (
-                      <label
-                        onClick={(e) => toggleOverwrite(field.fieldId, e)}
-                        className="flex items-center gap-1 text-[11px] text-warning cursor-pointer hover:underline"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={field.isOverwrite}
-                          onChange={() => {}}
-                          className="h-3 w-3 rounded text-accent border-border-subtle"
-                        />
-                        <span>Overwrite</span>
-                      </label>
-                    )}
-                </div>
-              </div>
-
-              {/* Distinct Ambiguity Warning */}
-              {field.isAmbiguous && (
-                <div className="mt-2.5 p-2 rounded-lg bg-danger-subtle text-danger text-[11px] flex items-center gap-1.5">
-                  <ShieldAlert size={13} className="shrink-0" />
-                  <span>Ambiguous Match: {field.warningReason} (Automatic fill prohibited)</span>
-                </div>
-              )}
-
-              {/* Overwrite Warning */}
-              {!field.isAmbiguous && field.warningReason && (
-                <div className="mt-2.5 p-2 rounded-lg bg-warning-subtle text-warning text-[11px] flex items-center gap-1.5">
-                  <AlertTriangle size={13} className="shrink-0" />
-                  <span>{field.warningReason}</span>
-                </div>
-              )}
-            </div>
-          ))
+        {errorMessage && (
+          <div className="p-3 rounded-lg bg-danger-subtle border border-border-subtle text-xs text-danger flex items-center gap-2">
+            <AlertTriangle size={14} className="shrink-0" />
+            <span>{errorMessage}</span>
+          </div>
         )}
       </div>
 
-      {/* Safety Notice */}
-      <div className="flex items-center gap-2 text-xs text-text-muted pt-2">
-        <ShieldAlert size={14} className="text-accent shrink-0" />
-        <span>You remain in full control. Always inspect before submitting.</span>
+      {/* Report Summary Card (Post-fill) */}
+      {fillReport && (
+        <div className="bg-surface rounded-xl p-6 border border-border-subtle space-y-3">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 size={16} className="text-success" />
+            <h3 className="text-xs font-semibold text-text-primary">Autofill Completed</h3>
+          </div>
+          <div className="grid grid-cols-4 gap-3 text-center">
+            <div className="bg-subtle p-2.5 rounded-lg border border-border-subtle">
+              <span className="block text-sm font-bold text-text-primary">{fillReport.totalRequested}</span>
+              <span className="text-[10px] text-text-muted uppercase tracking-wider font-semibold">Requested</span>
+            </div>
+            <div className="bg-success-subtle p-2.5 rounded-lg border border-border-subtle">
+              <span className="block text-sm font-bold text-success">{fillReport.filledCount}</span>
+              <span className="text-[10px] text-text-muted uppercase tracking-wider font-semibold">Filled</span>
+            </div>
+            <div className="bg-subtle p-2.5 rounded-lg border border-border-subtle">
+              <span className="block text-sm font-bold text-text-muted">{fillReport.skippedCount}</span>
+              <span className="text-[10px] text-text-muted uppercase tracking-wider font-semibold">Skipped</span>
+            </div>
+            <div className="bg-danger-subtle p-2.5 rounded-lg border border-border-subtle">
+              <span className="block text-sm font-bold text-danger">{fillReport.failedCount}</span>
+              <span className="text-[10px] text-text-muted uppercase tracking-wider font-semibold">Failed</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Field Review List */}
+      <div className="space-y-2.5">
+        {fills.map((field) => (
+          <div
+            key={field.fieldId}
+            onClick={() => toggleApproval(field.fieldId)}
+            className={`p-4 rounded-xl border transition cursor-pointer ${
+              field.approved
+                ? 'border-accent bg-surface shadow-xs'
+                : 'border-border-subtle bg-surface hover:bg-subtle/50 opacity-80'
+            }`}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={field.approved}
+                  onChange={() => {}} // Controlled by wrapper click
+                  className="mt-0.5 rounded text-accent focus:ring-accent border-border-subtle"
+                />
+
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-text-primary">{field.label || 'Unnamed Question'}</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-subtle text-text-secondary border border-border-subtle">
+                      {field.canonicalKey}
+                    </span>
+                    {field.confidenceTier && (
+                      <span
+                        className={`text-[9px] px-1.5 py-0.2 rounded font-bold uppercase tracking-wider ${
+                          field.confidenceTier === 'high'
+                            ? 'bg-success-subtle text-success'
+                            : field.confidenceTier === 'medium'
+                            ? 'bg-accent-subtle text-accent'
+                            : 'bg-danger-subtle text-danger'
+                        }`}
+                      >
+                        {field.confidenceTier}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="text-xs text-text-secondary flex items-center gap-2">
+                    <span>Proposed:</span>
+                    <strong className="text-text-primary font-medium">
+                      {Array.isArray(field.proposedValue)
+                        ? field.proposedValue.join(', ')
+                        : String(field.proposedValue ?? '')}
+                    </strong>
+                  </div>
+
+                  {field.currentValue && (
+                    <div className="text-[11px] text-text-muted flex items-center gap-1.5">
+                      <span>Existing page value:</span>
+                      <span className="font-mono bg-subtle px-1.5 py-0.5 rounded">
+                        {Array.isArray(field.currentValue) ? field.currentValue.join(', ') : String(field.currentValue)}
+                      </span>
+                    </div>
+                  )}
+
+                  {field.warningReason && (
+                    <div className="text-[11px] text-danger flex items-center gap-1 mt-1">
+                      <AlertTriangle size={12} className="shrink-0" />
+                      <span>{field.warningReason}</span>
+                    </div>
+                  )}
+
+                  {field.isAmbiguous && (
+                    <div className="text-[11px] text-accent flex items-center gap-1 mt-1">
+                      <ShieldAlert size={12} className="shrink-0" />
+                      <span>{field.ambiguityReason || 'Ambiguous mapping; requires manual review.'}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Overwrite Toggle */}
+              {field.currentValue && (
+                <div
+                  onClick={(e) => toggleOverwrite(field.fieldId, e)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] border border-border-subtle hover:bg-subtle transition"
+                >
+                  <input
+                    type="checkbox"
+                    checked={field.isOverwrite}
+                    onChange={() => {}}
+                    className="rounded text-accent focus:ring-accent border-border-subtle"
+                  />
+                  <span className="text-text-secondary">Overwrite</span>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

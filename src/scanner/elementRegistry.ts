@@ -1,6 +1,7 @@
 /**
  * In-memory registry keeping exact DOM references per scan session in the content script.
  * Resolves fields without relying solely on fragile selectors or re-querying DOM.
+ * Uses WeakMap for fast, identity-based DOM element tracking.
  */
 
 export interface RegisteredElement {
@@ -14,10 +15,12 @@ export interface RegisteredElement {
 class ScanSessionElementRegistry {
   private currentSessionId: string = '';
   private registry = new Map<string, RegisteredElement>();
+  private elementToFieldId = new WeakMap<HTMLElement, string>();
 
   public createSession(): string {
     this.currentSessionId = `session-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     this.registry.clear();
+    this.elementToFieldId = new WeakMap<HTMLElement, string>();
     return this.currentSessionId;
   }
 
@@ -38,6 +41,20 @@ class ScanSessionElementRegistry {
       groupedElements,
       originalValue,
     });
+    this.elementToFieldId.set(element, fieldId);
+    if (groupedElements && Array.isArray(groupedElements)) {
+      for (const gEl of groupedElements) {
+        this.elementToFieldId.set(gEl, fieldId);
+      }
+    }
+  }
+
+  public getFieldIdForElement(element: HTMLElement): string | undefined {
+    return this.elementToFieldId.get(element);
+  }
+
+  public hasElement(element: HTMLElement): boolean {
+    return this.elementToFieldId.has(element);
   }
 
   public resolve(fieldId: string, sessionId?: string): RegisteredElement | undefined {
@@ -57,6 +74,7 @@ class ScanSessionElementRegistry {
   public clear(): void {
     this.registry.clear();
     this.currentSessionId = '';
+    this.elementToFieldId = new WeakMap<HTMLElement, string>();
   }
 
   public size(): number {

@@ -18,6 +18,7 @@ export interface ProposedFieldFill {
   approved: boolean; // Must be explicitly approved by user
   hasConflictOrWarning: boolean;
   isAmbiguous: boolean;
+  ambiguityReason?: string;
   isOverwrite: boolean; // Distinct decision from normal fill
   warningReason?: string;
 }

@@ -1,7 +1,7 @@
 /**
- * AutoApply Shared Messaging Protocol
- * Strongly-typed contracts for Content Script, Service Worker, Popup, and Dashboard.
- */
+2:  * AutoApply Shared Messaging Protocol
+3:  * Strongly-typed contracts for Content Script, Service Worker, Popup, and Dashboard.
+4:  */
 
 import { FormScanSummary } from '../scanner/types';
 import { FillSessionReport } from '../filling/fillCoordinator';
@@ -15,6 +15,19 @@ export interface ValidatedFillInstruction {
   overwriteExisting: boolean;
   isAmbiguous: boolean;
   scanSessionId?: string;
+  frameId?: number;
+}
+
+export interface PersistentScanTargetContext {
+  tabId: number;
+  url: string;
+  title?: string;
+  domain: string;
+  platformId: string;
+  scanSessionId: string;
+  revision: number;
+  timestamp: string;
+  frameId?: number;
 }
 
 export type MessageType =
@@ -22,6 +35,8 @@ export type MessageType =
   | 'PING_BACKGROUND'
   | 'GET_ACTIVE_APPLICATION_TAB'
   | 'OPEN_DASHBOARD_TAB'
+  | 'DISCOVER_FRAMES'
+  | 'SCAN_FRAME_SUMMARY'
   | 'SCAN_FORM_SUMMARY'
   | 'FILL_APPROVED_FIELDS'
   | 'DYNAMIC_FORM_CHANGED'
@@ -47,12 +62,14 @@ export interface GetActiveApplicationTabResponse {
   tabId: number | null;
   url: string | null;
   title: string | null;
+  domain: string | null;
   isSupportedDomain: boolean;
   contentScriptReady?: boolean;
 }
 
 export interface ScanFormSummaryRequest {
   type: 'SCAN_FORM_SUMMARY';
+  frameId?: number;
 }
 
 export type ScanFormSummaryResponse = FormScanSummary;
@@ -61,6 +78,8 @@ export interface FillApprovedFieldsRequest {
   type: 'FILL_APPROVED_FIELDS';
   sessionId: string;
   instructions: ValidatedFillInstruction[];
+  targetContext?: PersistentScanTargetContext;
+  frameId?: number;
 }
 
 export interface FillApprovedFieldsResponse {
@@ -71,6 +90,7 @@ export interface FillApprovedFieldsResponse {
 
 export interface DynamicFormChangedNotice {
   type: 'DYNAMIC_FORM_CHANGED';
+  url?: string;
 }
 
 export interface TabFormMutatedBroadcast {

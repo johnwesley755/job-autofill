@@ -140,7 +140,7 @@ describe('Autofill Engine Modules', () => {
   });
 
   describe('fillCoordinator and scanRegistry integration', () => {
-    it('executes instructions safely using session registry elements and respects approval', () => {
+    it('executes instructions safely using session registry elements and respects approval', async () => {
       const input = document.createElement('input');
       input.type = 'text';
       input.id = 'applicant_email';
@@ -151,7 +151,7 @@ describe('Autofill Engine Modules', () => {
       scanRegistry.register(fieldId, input, '');
 
       // Fill instruction unapproved -> should skip
-      const unapprovedReport = executeFillInstructions(sessionId, [
+      const unapprovedReport = await executeFillInstructions(sessionId, [
         {
           fieldId,
           proposedValue: 'unapproved@example.com',
@@ -166,7 +166,7 @@ describe('Autofill Engine Modules', () => {
       expect(input.value).toBe('');
 
       // Fill instruction approved -> should fill
-      const approvedReport = executeFillInstructions(sessionId, [
+      const approvedReport = await executeFillInstructions(sessionId, [
         {
           fieldId,
           proposedValue: 'user@example.com',
@@ -181,7 +181,7 @@ describe('Autofill Engine Modules', () => {
       expect(input.value).toBe('user@example.com');
     });
 
-    it('refuses to overwrite existing non-empty value if overwriteExisting is false', () => {
+    it('refuses to overwrite existing non-empty value if overwriteExisting is false', async () => {
       const input = document.createElement('input');
       input.type = 'text';
       input.id = 'applicant_name';
@@ -192,7 +192,7 @@ describe('Autofill Engine Modules', () => {
       const fieldId = 'field_name_456';
       scanRegistry.register(fieldId, input, 'Existing Typed Name');
 
-      const report = executeFillInstructions(sessionId, [
+      const report = await executeFillInstructions(sessionId, [
         {
           fieldId,
           proposedValue: 'New Name',

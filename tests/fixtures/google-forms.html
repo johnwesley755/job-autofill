@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Google Form Job Application</title>
+</head>
+<body>
+  <form action="formResponse" method="POST">
+    <div role="listitem">
+      <div role="heading">Full Name *</div>
+      <input type="text" name="entry.1001" placeholder="Your answer" />
+    </div>
+
+    <div role="listitem">
+      <div role="heading">Email Address *</div>
+      <input type="email" name="entry.1002" placeholder="Your answer" />
+    </div>
+
+    <div role="listitem">
+      <div role="heading">Phone Number *</div>
+      <input type="tel" name="entry.1003" placeholder="Your answer" />
+    </div>
+
+    <div role="listitem">
+      <div role="heading">Cover Letter Summary</div>
+      <textarea name="entry.1004" placeholder="Tell us about yourself"></textarea>
+    </div>
+
+    <div role="listitem">
+      <div role="heading">Authorized to work in the US? *</div>
+      <div role="radiogroup">
+        <div role="radio" data-value="Yes" aria-label="Yes" aria-checked="false">Yes</div>
+        <div role="radio" data-value="No" aria-label="No" aria-checked="false">No</div>
+      </div>
+    </div>
+
+    <div role="listitem">
+      <div role="heading">Preferred Work Arrangement</div>
+      <div role="group">
+        <div role="checkbox" data-value="Remote" aria-label="Remote" aria-checked="false">Remote</div>
+        <div role="checkbox" data-value="Hybrid" aria-label="Hybrid" aria-checked="false">Hybrid</div>
+      </div>
+    </div>
+  </form>
+</body>
+</html>

@@ -4,6 +4,8 @@ import { setNativeInputValue } from './nativeSetter';
 import { setNativeSelectValue } from './selectHandler';
 import { setRadioGroupValue } from './radioHandler';
 import { setCheckboxValue } from './checkboxHandler';
+import { adapterRegistry } from '../adapters/adapterRegistry';
+import { DetectedField } from '../scanner/types';
 
 export type FillFieldStatus =
   | 'filled'
@@ -45,16 +47,20 @@ export interface FillSessionReport {
 
 /**
  * Coordinates execution of approved field fills using the scan-session element registry.
- * Validates DOM node presence, visibility, disabled state, and verifies value after assignment.
+ * Validates DOM node presence, visibility, disabled state, adapter custom control filling,
+ * and verifies value after assignment.
  */
-export function executeFillInstructions(
+export async function executeFillInstructions(
   sessionId: string,
   instructions: FillInstruction[]
-): FillSessionReport {
+): Promise<FillSessionReport> {
   const results: FieldFillResult[] = [];
   let filledCount = 0;
   let skippedCount = 0;
   let failedCount = 0;
+
+  const currentUrl = typeof window !== 'undefined' && window.location ? window.location.href : '';
+  const adapter = adapterRegistry.findAdapter(currentUrl, document);
 
   for (const instr of instructions) {
     if (!instr.approved) {
@@ -130,19 +136,25 @@ export function executeFillInstructions(
     const inputType = (el.getAttribute('type') || '').toLowerCase();
 
     if (reg.groupedElements && reg.groupedElements.length > 0) {
-      if (inputType === 'radio') {
-        const checked = reg.groupedElements.find((r) => (r as HTMLInputElement).checked);
-        currentVal = checked ? (checked as HTMLInputElement).value : '';
+      if (inputType === 'radio' || el.getAttribute('role') === 'radio') {
+        const checked = reg.groupedElements.find(
+          (r) => (r as HTMLInputElement).checked || r.getAttribute('aria-checked') === 'true'
+        );
+        currentVal = checked
+          ? (checked as HTMLInputElement).value || checked.getAttribute('data-value') || checked.textContent?.trim() || ''
+          : '';
       } else {
         currentVal = reg.groupedElements
-          .filter((c) => (c as HTMLInputElement).checked)
-          .map((c) => (c as HTMLInputElement).value)
+          .filter((c) => (c as HTMLInputElement).checked || c.getAttribute('aria-checked') === 'true')
+          .map((c) => (c as HTMLInputElement).value || c.getAttribute('data-value') || c.textContent?.trim() || '')
           .sort();
       }
     } else if (el instanceof HTMLInputElement && el.type === 'checkbox') {
       currentVal = el.checked;
+    } else if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
+      currentVal = el.value || '';
     } else {
-      currentVal = (el as HTMLInputElement).value || '';
+      currentVal = el.textContent?.trim() || '';
     }
 
     // Check if the value changed between scan time and fill execution
@@ -195,42 +207,77 @@ export function executeFillInstructions(
     let verifiedValue: string | boolean | string[] = '';
 
     try {
-      if (reg.groupedElements && reg.groupedElements.length > 0) {
-        if (inputType === 'radio') {
-          success = setRadioGroupValue(reg.groupedElements as HTMLInputElement[], instr.proposedValue as any);
-          const checked = reg.groupedElements.find((r) => (r as HTMLInputElement).checked);
-          verifiedValue = checked ? (checked as HTMLInputElement).value : '';
-        } else {
+      // 1. Try Platform Adapter custom control fill if available
+      if (adapter && adapter.fillControl) {
+        const syntheticField: DetectedField = {
+          id: instr.fieldId,
+          type:
+            reg.groupedElements && reg.groupedElements.length > 0
+              ? inputType === 'radio' || el.getAttribute('role') === 'radio'
+                ? 'radio-group'
+                : 'checkbox-group'
+              : el.getAttribute('role') === 'combobox' || el.getAttribute('role') === 'listbox'
+              ? 'custom-select'
+              : (inputType as any) || 'text',
+          label: '',
+          isRequired: false,
+          isDisabled: false,
+          isVisible: true,
+          selector: '',
+        };
+
+        const handled = await adapter.fillControl(
+          syntheticField,
+          instr.proposedValue,
+          el,
+          reg.groupedElements
+        );
+
+        if (handled) {
+          success = true;
+          verifiedValue = instr.proposedValue;
+        }
+      }
+
+      // 2. Standard native control fill fallback if not handled by adapter
+      if (!success) {
+        if (reg.groupedElements && reg.groupedElements.length > 0) {
+          if (inputType === 'radio' || el.getAttribute('role') === 'radio') {
+            success = setRadioGroupValue(reg.groupedElements as HTMLInputElement[], instr.proposedValue as any);
+            const checked = reg.groupedElements.find((r) => (r as HTMLInputElement).checked);
+            verifiedValue = checked ? (checked as HTMLInputElement).value : '';
+          } else {
+            success = setCheckboxValue(
+              reg.groupedElements as HTMLInputElement[],
+              instr.proposedValue as any,
+              Boolean(instr.overwriteExisting)
+            );
+            verifiedValue = reg.groupedElements
+              .filter((c) => (c as HTMLInputElement).checked)
+              .map((c) => (c as HTMLInputElement).value);
+          }
+        } else if (tagName === 'select') {
+          success = setNativeSelectValue(el as HTMLSelectElement, String(instr.proposedValue));
+          verifiedValue = (el as HTMLSelectElement).value;
+        } else if (tagName === 'input' && inputType === 'checkbox') {
           success = setCheckboxValue(
-            reg.groupedElements as HTMLInputElement[],
+            [el as HTMLInputElement],
             instr.proposedValue as any,
             Boolean(instr.overwriteExisting)
           );
-          verifiedValue = reg.groupedElements
-            .filter((c) => (c as HTMLInputElement).checked)
-            .map((c) => (c as HTMLInputElement).value);
+          verifiedValue = (el as HTMLInputElement).checked;
+        } else if (tagName === 'input' || tagName === 'textarea') {
+          success = setNativeInputValue(el as HTMLInputElement | HTMLTextAreaElement, instr.proposedValue as any);
+          verifiedValue = (el as HTMLInputElement | HTMLTextAreaElement).value;
+        } else {
+          results.push({
+            fieldId: instr.fieldId,
+            status: 'unsupported_control',
+            message: `Custom or unsupported control type: <${tagName}>.`,
+          });
+          failedCount++;
+          continue;
         }
-      } else if (tagName === 'select') {
-        success = setNativeSelectValue(el as HTMLSelectElement, String(instr.proposedValue));
-        verifiedValue = (el as HTMLSelectElement).value;
-      } else if (tagName === 'input' && inputType === 'checkbox') {
-        success = setCheckboxValue(
-          [el as HTMLInputElement],
-          instr.proposedValue as any,
-          Boolean(instr.overwriteExisting)
-        );
-        verifiedValue = (el as HTMLInputElement).checked;
-      } else if (tagName === 'input' || tagName === 'textarea') {
-        success = setNativeInputValue(el as HTMLInputElement | HTMLTextAreaElement, instr.proposedValue as any);
-        verifiedValue = (el as HTMLInputElement | HTMLTextAreaElement).value;
-      } else {
-        results.push({
-          fieldId: instr.fieldId,
-          status: 'unsupported_control',
-          message: `Custom or unsupported control type: <${tagName}>.`,
-        });
-        failedCount++;
-        continue;
       }
 
       if (success) {
