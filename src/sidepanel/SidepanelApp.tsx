@@ -12,9 +12,9 @@ import {
   Check,
   Sun,
   Moon,
-  Info,
   FileText,
-  Settings
+  Settings,
+  ExternalLink
 } from 'lucide-react';
 import { PersonalTab } from './components/PersonalTab';
 import { EducationTab } from './components/EducationTab';
@@ -68,84 +68,87 @@ export const SidepanelApp: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="flex h-screen items-center justify-center text-xs text-gray-500">
+      <div className="flex h-screen items-center justify-center text-xs text-text-muted bg-canvas">
         Loading candidate profile...
       </div>
     );
   }
 
   return (
-    <div className={`flex flex-col h-screen ${isDark ? 'dark bg-gray-950 text-gray-100' : 'bg-gray-50 text-gray-900'}`}>
+    <div className={`flex flex-col h-screen ${isDark ? 'dark bg-canvas text-text-primary' : 'bg-canvas text-text-primary'}`}>
       {/* Top Header */}
-      <header className="px-4 py-3 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between shadow-xs shrink-0">
-        <div className="flex items-center space-x-2.5">
-          <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-xs shadow-sm">
+      <header className="px-4 py-3 bg-surface border-b border-border-subtle flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-lg bg-accent flex items-center justify-center text-white font-bold text-xs shadow-xs">
             A
           </div>
           <div>
-            <h1 className="text-xs font-bold leading-none tracking-tight">AutoApply Assistant</h1>
-            <span className="text-[10px] text-gray-500 dark:text-gray-400">Universal Form Scanner</span>
+            <h1 className="text-xs font-bold leading-none tracking-tight">AutoApply</h1>
+            <span className="text-[10px] text-text-muted">Companion Panel</span>
           </div>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => chrome.tabs?.create({ url: chrome.runtime.getURL('app.html') })}
+            className="p-1.5 rounded-lg hover:bg-subtle text-text-secondary transition"
+            title="Open Full Dashboard"
+          >
+            <ExternalLink size={15} />
+          </button>
+
           <button
             onClick={toggleTheme}
-            className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 transition"
-            title="Toggle Light/Dark Theme"
+            className="p-1.5 rounded-lg hover:bg-subtle text-text-secondary transition"
+            title="Toggle Theme"
           >
             {isDark ? <Sun size={15} /> : <Moon size={15} />}
           </button>
 
           <button
             onClick={handleSave}
-            disabled={!isDirty}
-            className={`flex items-center space-x-1 px-3 py-1.5 rounded-lg text-xs font-medium transition shadow-xs ${
-              isDirty
-                ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                : 'bg-gray-100 dark:bg-gray-800 text-gray-400 cursor-not-allowed'
+            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition shadow-xs ${
+              showSavedToast
+                ? 'bg-success text-white'
+                : isDirty
+                ? 'bg-accent hover:bg-accent-hover text-white'
+                : 'bg-subtle text-text-muted'
             }`}
           >
-            {showSavedToast ? <Check size={14} className="text-emerald-400" /> : <Save size={14} />}
-            <span>{showSavedToast ? 'Saved!' : 'Save Profile'}</span>
+            {showSavedToast ? <Check size={14} /> : <Save size={14} />}
+            <span>{showSavedToast ? 'Saved' : 'Save'}</span>
           </button>
         </div>
       </header>
 
-      {/* Completeness Bar */}
+      {/* Profile Completeness Ribbon */}
       {completeness && (
-        <div className="bg-white dark:bg-gray-900 px-4 py-1.5 border-b border-gray-100 dark:border-gray-800/80 flex items-center justify-between text-[11px] shrink-0">
-          <div className="flex items-center space-x-2 flex-1 mr-3">
-            <span className="text-gray-500 dark:text-gray-400 whitespace-nowrap">Completeness:</span>
-            <div className="w-full bg-gray-200 dark:bg-gray-700 h-1.5 rounded-full overflow-hidden">
+        <div className="bg-surface px-4 py-2 border-b border-border-subtle flex items-center justify-between text-[11px]">
+          <span className="text-text-muted">Profile Complete</span>
+          <div className="flex items-center gap-2">
+            <div className="w-20 bg-subtle rounded-full h-1.5 overflow-hidden">
               <div
-                className={`h-full rounded-full transition-all duration-300 ${
-                  completeness.percentage >= 80
-                    ? 'bg-emerald-500'
-                    : completeness.percentage >= 50
-                    ? 'bg-blue-500'
-                    : 'bg-amber-500'
-                }`}
+                className="bg-accent h-full transition-all duration-300 rounded-full"
                 style={{ width: `${completeness.percentage}%` }}
               />
             </div>
+            <span className="font-semibold text-text-primary tabular-nums">
+              {completeness.percentage}%
+            </span>
           </div>
-          <span className="font-semibold text-gray-700 dark:text-gray-300 font-mono">
-            {completeness.percentage}%
-          </span>
         </div>
       )}
 
       {/* Navigation Tabs */}
-      <nav className="flex px-2 py-1.5 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 overflow-x-auto no-scrollbar space-x-1 shrink-0">
+      <nav className="flex overflow-x-auto border-b border-border-subtle bg-surface px-2 py-1 gap-1 shrink-0 scrollbar-none">
         {navItems.map((item) => (
           <button
             key={item.key}
             onClick={() => setActiveTab(item.key)}
-            className={`flex items-center space-x-1 px-2.5 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition ${
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition ${
               activeTab === item.key
-                ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-semibold'
-                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/60'
+                ? 'bg-accent-subtle text-accent font-semibold'
+                : 'text-text-secondary hover:bg-subtle hover:text-text-primary'
             }`}
           >
             {item.icon}
@@ -155,7 +158,7 @@ export const SidepanelApp: React.FC = () => {
       </nav>
 
       {/* Main Tab Content */}
-      <main className="flex-1 overflow-y-auto p-4 space-y-4">
+      <main className="flex-1 overflow-y-auto p-4 bg-canvas">
         {activeTab === 'personal' && <PersonalTab />}
         {activeTab === 'education' && <EducationTab />}
         {activeTab === 'experience' && <ExperienceTab />}
@@ -166,13 +169,10 @@ export const SidepanelApp: React.FC = () => {
         {activeTab === 'settings' && <SettingsTab />}
       </main>
 
-      {/* Bottom Status bar */}
-      <footer className="px-4 py-2 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between text-[11px] text-gray-400 dark:text-gray-500 shrink-0">
-        <div className="flex items-center space-x-1">
-          <Info size={12} />
-          <span>Local IndexedDB & Storage</span>
-        </div>
-        <div className="font-mono text-[10px]">v1.0.0</div>
+      {/* Bottom Status Bar */}
+      <footer className="px-4 py-2 bg-surface border-t border-border-subtle text-[10px] text-text-muted flex justify-between items-center shrink-0">
+        <span className="text-success font-medium">Local IndexedDB Active</span>
+        <span>AutoApply v1.0.0</span>
       </footer>
     </div>
   );

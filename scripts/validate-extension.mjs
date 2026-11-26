@@ -50,52 +50,56 @@ function checkFile(relPath, desc) {
 // 1. Icons
 if (manifest.icons) {
   for (const [size, iconPath] of Object.entries(manifest.icons)) {
-    checkFile(iconPath, `Icon (${size}px)`);
+    checkFile(iconPath, `Icon ${size}x${size}`);
   }
 }
 
-// 2. Popup
+// 2. Action / Background / Popup
 if (manifest.action?.default_popup) {
-  checkFile(manifest.action.default_popup, 'Action popup');
+  checkFile(manifest.action.default_popup, 'Action popup HTML');
 }
-
-// 3. Side Panel
-if (manifest.side_panel?.default_path) {
-  checkFile(manifest.side_panel.default_path, 'Side panel');
-}
-
-// 4. Background Service Worker
 if (manifest.background?.service_worker) {
   checkFile(manifest.background.service_worker, 'Background service worker');
 }
 
-// 5. Content Scripts
-if (manifest.content_scripts) {
-  for (const cs of manifest.content_scripts) {
-    if (cs.js) {
-      for (const jsFile of cs.js) {
-        checkFile(jsFile, 'Content script JS');
+// 3. Standalone Dashboard HTML entry
+checkFile('app.html', 'Standalone Dashboard HTML');
 
-        // Check for unsupported static ES module import statements in classic content scripts
-        const fullJsPath = path.join(distDir, jsFile);
-        if (fs.existsSync(fullJsPath)) {
-          const content = fs.readFileSync(fullJsPath, 'utf8');
-          // Match top-level static import declarations like: import "..." or import x from "..."
-          if (/^\s*import\s+[^;]+from\s+['"][^'"]+['"]/m.test(content) || /^\s*import\s*['"][^'"]+['"]/m.test(content)) {
-            errors.push(`Content script "${jsFile}" contains static ES module imports. Content scripts must be self-contained classic scripts.`);
-          }
-        }
+// 4. Content Scripts
+if (Array.isArray(manifest.content_scripts)) {
+  for (const cs of manifest.content_scripts) {
+    if (Array.isArray(cs.js)) {
+      for (const jsFile of cs.js) {
+        checkFile(jsFile, 'Content script');
       }
     }
   }
 }
 
-if (errors.length > 0) {
-  console.error('[Error] Extension validation failed:');
-  for (const err of errors) {
-    console.error('  - ' + err);
+// 5. Self-hosted Onest Fonts
+const fonts = [
+  'fonts/Onest-Regular.woff2',
+  'fonts/Onest-Medium.woff2',
+  'fonts/Onest-SemiBold.woff2',
+  'fonts/Onest-Bold.woff2',
+];
+for (const fontPath of fonts) {
+  checkFile(fontPath, `Self-hosted font ${fontPath}`);
+}
+
+// 6. Check content script for static ES imports
+const contentScriptPath = path.join(distDir, 'content.js');
+if (fs.existsSync(contentScriptPath)) {
+  const contentCode = fs.readFileSync(contentScriptPath, 'utf8');
+  if (/^\s*import\s+.*from\s+['"]/m.test(contentCode)) {
+    errors.push('content.js contains top-level static "import" statement which Chrome rejects in classic content scripts.');
   }
+}
+
+if (errors.length > 0) {
+  console.error('[Error] Extension production validation failed:');
+  errors.forEach((e) => console.error(`  - ${e}`));
   process.exit(1);
 }
 
-console.log('[Validate Extension] dist/ passed all production manifest and asset checks!');
+console.log('[Validate Extension] dist/ passed all production manifest, popup, dashboard, and asset checks!');

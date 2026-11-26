@@ -1,161 +1,159 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useProfileStore } from '../../store/profileStore';
-import { Sliders, IndianRupee, Clock, Building2 } from 'lucide-react';
+import { Sliders, Plus, X } from 'lucide-react';
 
 export const PreferencesTab: React.FC = () => {
   const { profile, updatePreferences } = useProfileStore();
-  const pref = profile.preferences;
+  const [cityInput, setCityInput] = useState('');
+
+  const addCity = () => {
+    const trimmed = cityInput.trim();
+    if (!trimmed) return;
+    const current = profile.preferences.preferredCities || [];
+    if (!current.includes(trimmed)) {
+      updatePreferences({ preferredCities: [...current, trimmed] });
+    }
+    setCityInput('');
+  };
+
+  const removeCity = (city: string) => {
+    const current = profile.preferences.preferredCities || [];
+    updatePreferences({ preferredCities: current.filter((c) => c !== city) });
+  };
+
+  const inputClass =
+    'w-full px-3 py-2 rounded-lg border border-border-subtle bg-subtle text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent text-xs transition';
+  const labelClass = 'block font-medium text-text-secondary mb-1.5';
 
   return (
-    <div className="space-y-6">
-      <section className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 space-y-4">
-        <div className="flex items-center space-x-2 border-b border-gray-100 dark:border-gray-700/60 pb-2.5">
-          <Sliders className="text-amber-500" size={18} />
-          <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Job Preferences & Compensation</h2>
+    <div className="space-y-6 max-w-4xl">
+      <section className="bg-surface rounded-xl p-6 border border-border-subtle space-y-5">
+        <div className="flex items-center space-x-2.5 border-b border-border-subtle pb-3">
+          <Sliders className="text-accent" size={18} />
+          <h2 className="text-sm font-semibold text-text-primary tracking-tight">Job & Employment Preferences</h2>
         </div>
 
-        {/* Fresher vs Experienced toggle */}
-        <div className="bg-gray-50 dark:bg-gray-900/60 p-3 rounded-lg border border-gray-200 dark:border-gray-700 flex items-center justify-between text-xs">
-          <div>
-            <div className="font-semibold text-gray-900 dark:text-gray-100">Fresher Candidate</div>
-            <div className="text-[11px] text-gray-500">Enable if applying as a college graduate or 0 years experience</div>
-          </div>
-          <input
-            type="checkbox"
-            checked={pref.isFresher}
-            onChange={(e) => updatePreferences({ isFresher: e.target.checked })}
-            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-5 h-5"
-          />
-        </div>
-
-        <div className="grid grid-cols-2 gap-3 text-xs">
-          <div>
-            <label className="block font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Total Experience (Years)
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+          {/* Fresher Status */}
+          <div className="sm:col-span-2">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={profile.preferences.isFresher}
+                onChange={(e) => updatePreferences({ isFresher: e.target.checked })}
+                className="rounded border-border-subtle text-accent focus:ring-accent h-4 w-4"
+              />
+              <span className="font-medium text-text-primary">
+                I am a fresher / recent graduate seeking entry-level roles
+              </span>
             </label>
+          </div>
+
+          {/* Work Authorization */}
+          <div>
+            <label className={labelClass}>Work Authorization</label>
             <input
-              type="number"
-              step="0.5"
-              disabled={pref.isFresher}
-              value={pref.isFresher ? 0 : pref.totalExperienceYears}
-              onChange={(e) => updatePreferences({ totalExperienceYears: parseFloat(e.target.value) || 0 })}
-              className="w-full px-2.5 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono disabled:opacity-50"
+              type="text"
+              value={profile.preferences.workAuthorization || ''}
+              onChange={(e) => updatePreferences({ workAuthorization: e.target.value })}
+              placeholder="e.g. US Citizen, Permanent Resident, H1B"
+              className={inputClass}
             />
           </div>
 
-          <div>
-            <label className="block font-medium text-gray-700 dark:text-gray-300 mb-1 flex items-center space-x-1">
-              <Clock size={13} className="text-blue-500" />
-              <span>Notice Period (Days)</span>
-            </label>
-            <input
-              type="number"
-              value={pref.noticePeriodDays}
-              onChange={(e) => updatePreferences({ noticePeriodDays: parseInt(e.target.value) || 0 })}
-              placeholder="e.g. 15, 30, 60, 90"
-              className="w-full px-2.5 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-            />
-          </div>
-
-          <div className="col-span-2 flex items-center space-x-2">
-            <input
-              type="checkbox"
-              id="immediate-joiner"
-              checked={pref.immediateJoiner}
-              onChange={(e) => updatePreferences({ immediateJoiner: e.target.checked })}
-              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4"
-            />
-            <label htmlFor="immediate-joiner" className="font-medium text-gray-700 dark:text-gray-300 text-xs">
-              Immediate Joiner (Serving notice or already available)
+          {/* Sponsorship Requirement */}
+          <div className="flex items-center pt-6">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={profile.preferences.requiresSponsorship}
+                onChange={(e) => updatePreferences({ requiresSponsorship: e.target.checked })}
+                className="rounded border-border-subtle text-accent focus:ring-accent h-4 w-4"
+              />
+              <span className="font-medium text-text-primary">Requires visa sponsorship now or in future</span>
             </label>
           </div>
 
+          {/* Work Mode */}
           <div>
-            <label className="block font-medium text-gray-700 dark:text-gray-300 mb-1 flex items-center space-x-1">
-              <IndianRupee size={13} className="text-emerald-500" />
-              <span>Current CTC (LPA)</span>
-            </label>
-            <input
-              type="number"
-              step="0.5"
-              value={pref.currentCtcLpa || ''}
-              onChange={(e) => updatePreferences({ currentCtcLpa: parseFloat(e.target.value) || 0 })}
-              placeholder="e.g. 12"
-              className="w-full px-2.5 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-            />
-          </div>
-
-          <div>
-            <label className="block font-medium text-gray-700 dark:text-gray-300 mb-1 flex items-center space-x-1">
-              <IndianRupee size={13} className="text-emerald-500" />
-              <span>Expected CTC (LPA)</span>
-            </label>
-            <input
-              type="number"
-              step="0.5"
-              value={pref.expectedCtcLpa || ''}
-              onChange={(e) => updatePreferences({ expectedCtcLpa: parseFloat(e.target.value) || 0 })}
-              placeholder="e.g. 18"
-              className="w-full px-2.5 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-            />
-          </div>
-
-          <div>
-            <label className="block font-medium text-gray-700 dark:text-gray-300 mb-1 flex items-center space-x-1">
-              <Building2 size={13} className="text-gray-500" />
-              <span>Work Mode</span>
-            </label>
+            <label className={labelClass}>Preferred Work Mode</label>
             <select
-              value={pref.workMode}
-              onChange={(e) => updatePreferences({ workMode: e.target.value as any })}
-              className="w-full px-2.5 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={profile.preferences.workMode || 'hybrid'}
+              onChange={(e) =>
+                updatePreferences({ workMode: e.target.value as 'remote' | 'hybrid' | 'onsite' })
+              }
+              className={inputClass}
             >
-              <option value="remote">Remote Only</option>
+              <option value="remote">Remote only</option>
               <option value="hybrid">Hybrid</option>
-              <option value="onsite">On-site</option>
-              <option value="any">Open to Any</option>
+              <option value="onsite">On-site only</option>
             </select>
           </div>
 
+          {/* Notice Period */}
           <div>
-            <label className="block font-medium text-gray-700 dark:text-gray-300 mb-1">Work Authorization</label>
+            <label className={labelClass}>Notice Period (Days)</label>
             <input
-              type="text"
-              value={pref.workAuthorization}
-              onChange={(e) => updatePreferences({ workAuthorization: e.target.value })}
-              placeholder="e.g. Citizen / Permanent Resident"
-              className="w-full px-2.5 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          <div className="col-span-2">
-            <label className="block font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Preferred Cities (Comma-separated)
-            </label>
-            <input
-              type="text"
-              value={pref.preferredCities.join(', ')}
+              type="number"
+              value={profile.preferences.noticePeriodDays || ''}
               onChange={(e) =>
-                updatePreferences({
-                  preferredCities: e.target.value.split(',').map((s) => s.trim()).filter(Boolean),
-                })
+                updatePreferences({ noticePeriodDays: Number(e.target.value) || undefined })
               }
-              placeholder="Bengaluru, Hyderabad, Pune, Gurgaon, Remote"
-              className="w-full px-2.5 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="e.g. 15 or 30"
+              className={`${inputClass} tabular-nums`}
             />
           </div>
 
-          <div className="col-span-2 flex items-center space-x-2 pt-1">
-            <input
-              type="checkbox"
-              id="relocate-pref"
-              checked={pref.willingToRelocate}
-              onChange={(e) => updatePreferences({ willingToRelocate: e.target.checked })}
-              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-4 h-4"
-            />
-            <label htmlFor="relocate-pref" className="font-medium text-gray-700 dark:text-gray-300 text-xs">
-              Willing to relocate for the right opportunity
+          {/* Immediate Joining */}
+          <div className="sm:col-span-2">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={profile.preferences.immediateJoiner}
+                onChange={(e) => updatePreferences({ immediateJoiner: e.target.checked })}
+                className="rounded border-border-subtle text-accent focus:ring-accent h-4 w-4"
+              />
+              <span className="font-medium text-text-primary">Available for immediate joining</span>
             </label>
+          </div>
+
+          {/* Preferred Cities */}
+          <div className="sm:col-span-2">
+            <label className={labelClass}>Preferred Job Locations / Cities</label>
+            <div className="flex gap-2 mb-2.5">
+              <input
+                type="text"
+                value={cityInput}
+                onChange={(e) => setCityInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addCity();
+                  }
+                }}
+                placeholder="e.g. San Francisco, New York, Seattle"
+                className={inputClass}
+              />
+              <button
+                onClick={addCity}
+                className="px-3.5 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg font-medium transition shrink-0"
+              >
+                <Plus size={14} />
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {(profile.preferences.preferredCities || []).map((city) => (
+                <span
+                  key={city}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-subtle border border-border-subtle text-text-primary text-[11px] font-medium"
+                >
+                  {city}
+                  <button onClick={() => removeCity(city)} className="text-text-muted hover:text-danger">
+                    <X size={12} />
+                  </button>
+                </span>
+              ))}
+            </div>
           </div>
         </div>
       </section>

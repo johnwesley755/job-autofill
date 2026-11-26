@@ -1,35 +1,38 @@
 import React from 'react';
 import { useProfileStore } from '../../store/profileStore';
-import { GraduationCap, Plus, Trash2 } from 'lucide-react';
 import { EducationRecord } from '../../types/profile';
+import { Plus, Trash2, GraduationCap } from 'lucide-react';
 
 export const EducationTab: React.FC = () => {
   const { profile, addEducation, updateEducation, removeEducation } = useProfileStore();
 
   const handleAddNew = () => {
-    const newEdu: EducationRecord = {
-      id: `edu-${Date.now()}`,
+    const newEntry: EducationRecord = {
+      id: crypto.randomUUID(),
       institution: '',
-      degree: 'B.Tech / B.E.',
+      degree: '',
       fieldOfStudy: '',
+      startYear: new Date().getFullYear() - 4,
       graduationYear: new Date().getFullYear(),
-      scoreType: 'cgpa',
-      score: 8.0,
-      scale: 10.0,
-      backlogsCount: 0,
+      scoreType: 'percentage',
     };
-    addEducation(newEdu);
+    addEducation(newEntry);
   };
 
+  const inputClass =
+    'w-full px-3 py-2 rounded-lg border border-border-subtle bg-subtle text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent text-xs transition';
+  const labelClass = 'block font-medium text-text-secondary mb-1.5';
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-6 max-w-4xl">
       <div className="flex items-center justify-between">
-        <div className="text-xs text-gray-500 dark:text-gray-400">
-          Add your university degrees, colleges, and academic records.
+        <div>
+          <h2 className="text-base font-bold text-text-primary tracking-tight">Academic History</h2>
+          <p className="text-xs text-text-muted">Record degrees, certifications, and academic performance.</p>
         </div>
         <button
           onClick={handleAddNew}
-          className="flex items-center space-x-1 px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-medium shadow-sm transition"
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg text-xs font-medium shadow-xs transition"
         >
           <Plus size={14} />
           <span>Add Education</span>
@@ -37,111 +40,115 @@ export const EducationTab: React.FC = () => {
       </div>
 
       {profile.education.length === 0 ? (
-        <div className="text-center py-8 bg-white dark:bg-gray-800 rounded-xl border border-dashed border-gray-300 dark:border-gray-700">
-          <GraduationCap className="mx-auto text-gray-400 mb-2" size={32} />
-          <p className="text-xs text-gray-500">No education entries added yet.</p>
+        <div className="text-center py-12 bg-surface rounded-xl border border-dashed border-border-subtle p-6">
+          <GraduationCap className="mx-auto text-text-muted mb-3" size={32} />
+          <p className="text-xs font-medium text-text-primary mb-1">No education entries added yet.</p>
+          <p className="text-xs text-text-muted max-w-xs mx-auto">
+            Add your degrees to enable automatic mapping for education fields in job applications.
+          </p>
         </div>
       ) : (
         profile.education.map((edu, idx) => (
           <div
             key={edu.id}
-            className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 space-y-3 relative"
+            className="bg-surface rounded-xl p-6 border border-border-subtle space-y-4 relative"
           >
-            <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-700 pb-2">
-              <span className="text-xs font-semibold text-blue-600 dark:text-blue-400">
-                Education #{idx + 1}
+            <div className="flex items-center justify-between border-b border-border-subtle pb-3">
+              <span className="text-xs font-semibold text-accent uppercase tracking-wider">
+                Education Entry #{idx + 1}
               </span>
               <button
                 onClick={() => removeEducation(edu.id)}
-                className="text-gray-400 hover:text-red-500 transition p-1"
-                title="Delete education"
+                className="text-text-muted hover:text-danger transition p-1 rounded-md hover:bg-subtle"
+                title="Delete education entry"
               >
-                <Trash2 size={14} />
+                <Trash2 size={15} />
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 text-xs">
-              <div className="col-span-2">
-                <label className="block font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Institution / University *
-                </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+              <div className="sm:col-span-2">
+                <label className={labelClass}>College / University / School *</label>
                 <input
                   type="text"
                   value={edu.institution}
                   onChange={(e) => updateEducation(edu.id, { institution: e.target.value })}
-                  placeholder="e.g. National Institute of Technology Karnataka"
-                  className="w-full px-2.5 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="e.g. Stanford University"
+                  className={inputClass}
                 />
               </div>
 
               <div>
-                <label className="block font-medium text-gray-700 dark:text-gray-300 mb-1">Degree *</label>
+                <label className={labelClass}>Degree / Qualification *</label>
                 <input
                   type="text"
                   value={edu.degree}
                   onChange={(e) => updateEducation(edu.id, { degree: e.target.value })}
-                  placeholder="e.g. B.Tech / B.E. / M.S."
-                  className="w-full px-2.5 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="e.g. Bachelor of Science"
+                  className={inputClass}
                 />
               </div>
 
               <div>
-                <label className="block font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Specialization / Branch *
-                </label>
+                <label className={labelClass}>Field of Study / Major</label>
                 <input
                   type="text"
                   value={edu.fieldOfStudy}
                   onChange={(e) => updateEducation(edu.id, { fieldOfStudy: e.target.value })}
                   placeholder="e.g. Computer Science"
-                  className="w-full px-2.5 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className={inputClass}
                 />
               </div>
 
               <div>
-                <label className="block font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Graduation Year (Batch) *
-                </label>
+                <label className={labelClass}>Start Year</label>
                 <input
                   type="number"
-                  value={edu.graduationYear}
-                  onChange={(e) => updateEducation(edu.id, { graduationYear: parseInt(e.target.value) || 0 })}
-                  className="w-full px-2.5 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                  value={edu.startYear || ''}
+                  onChange={(e) => updateEducation(edu.id, { startYear: Number(e.target.value) || undefined })}
+                  placeholder="2020"
+                  className={`${inputClass} tabular-nums`}
                 />
               </div>
 
               <div>
-                <label className="block font-medium text-gray-700 dark:text-gray-300 mb-1">Score Type</label>
+                <label className={labelClass}>Graduation / End Year *</label>
+                <input
+                  type="number"
+                  value={edu.graduationYear || ''}
+                  onChange={(e) => updateEducation(edu.id, { graduationYear: Number(e.target.value) || undefined })}
+                  placeholder="2024"
+                  className={`${inputClass} tabular-nums`}
+                />
+              </div>
+
+              <div>
+                <label className={labelClass}>Grading Scheme</label>
                 <select
-                  value={edu.scoreType}
-                  onChange={(e) => updateEducation(edu.id, { scoreType: e.target.value as 'cgpa' | 'percentage' })}
-                  className="w-full px-2.5 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  value={edu.scoreType || 'percentage'}
+                  onChange={(e) =>
+                    updateEducation(edu.id, { scoreType: e.target.value as 'percentage' | 'cgpa' })
+                  }
+                  className={inputClass}
                 >
-                  <option value="cgpa">CGPA (Out of 10 or 4)</option>
                   <option value="percentage">Percentage (%)</option>
+                  <option value="cgpa">CGPA / GPA</option>
                 </select>
               </div>
 
               <div>
-                <label className="block font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Score Value ({edu.scoreType === 'cgpa' ? 'e.g. 8.75' : 'e.g. 85.5%'})
+                <label className={labelClass}>
+                  {edu.scoreType === 'cgpa' ? 'CGPA / GPA Value' : 'Percentage Value (%)'}
                 </label>
                 <input
                   type="number"
                   step="0.01"
-                  value={edu.score}
-                  onChange={(e) => updateEducation(edu.id, { score: parseFloat(e.target.value) || 0 })}
-                  className="w-full px-2.5 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="block font-medium text-gray-700 dark:text-gray-300 mb-1">Active Backlogs</label>
-                <input
-                  type="number"
-                  value={edu.backlogsCount || 0}
-                  onChange={(e) => updateEducation(edu.id, { backlogsCount: parseInt(e.target.value) || 0 })}
-                  className="w-full px-2.5 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                  value={edu.score !== undefined ? edu.score : ''}
+                  onChange={(e) =>
+                    updateEducation(edu.id, { score: e.target.value ? Number(e.target.value) : undefined })
+                  }
+                  placeholder={edu.scoreType === 'cgpa' ? 'e.g. 3.8' : 'e.g. 85.5'}
+                  className={`${inputClass} tabular-nums`}
                 />
               </div>
             </div>

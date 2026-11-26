@@ -12,9 +12,6 @@
     "default_popup": "popup.html",
     "default_title": "AutoApply Assistant"
   },
-  "side_panel": {
-    "default_path": "sidepanel.html"
-  },
   "background": {
     "service_worker": "background.js",
     "type": "module"
@@ -37,7 +34,6 @@
   "permissions": [
     "storage",
     "activeTab",
-    "sidePanel",
     "scripting"
   ]
 }

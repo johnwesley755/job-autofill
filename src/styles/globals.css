@@ -2,19 +2,104 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Self-hosted Onest font (Google Fonts) */
+@font-face {
+  font-family: 'Onest';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/Onest-Regular.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Onest';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/Onest-Medium.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Onest';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/Onest-SemiBold.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Onest';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/Onest-Bold.woff2') format('woff2');
+}
+
 :root {
-  --bg-primary: #ffffff;
-  --text-primary: #111827;
-  --border-subtle: #e5e7eb;
+  /* Hallmark Refined Professional Palette */
+  --bg-canvas: #fcfbf9;
+  --bg-surface: #ffffff;
+  --bg-subtle: #f4f3ef;
+  --bg-muted: #eeecea;
+
+  --border-subtle: #e5e4de;
+  --border-strong: #d2cfc8;
+
+  --text-primary: #1c1f1d;
+  --text-secondary: #575c57;
+  --text-muted: #858b85;
+
+  /* Restrained Forest Green Accent */
+  --accent: #1e4634;
+  --accent-hover: #153326;
+  --accent-subtle: #e9f2ec;
+  --accent-text: #ffffff;
+
+  /* Status Colors */
+  --success: #2e6945;
+  --success-subtle: #edf7f0;
+  --warning: #946014;
+  --warning-subtle: #fcf6eb;
+  --danger: #9c2d2d;
+  --danger-subtle: #fcf0f0;
 }
 
 .dark {
-  --bg-primary: #111827;
-  --text-primary: #f9fafb;
-  --border-subtle: #374151;
+  --bg-canvas: #121413;
+  --bg-surface: #1a1d1b;
+  --bg-subtle: #222624;
+  --bg-muted: #2d332f;
+
+  --border-subtle: #2c332e;
+  --border-strong: #3d4640;
+
+  --text-primary: #f2f4f2;
+  --text-secondary: #a3aaa3;
+  --text-muted: #717771;
+
+  --accent: #2e6945;
+  --accent-hover: #3d865b;
+  --accent-subtle: #192b21;
+  --accent-text: #ffffff;
+
+  --success: #3ea165;
+  --success-subtle: #15291d;
+  --warning: #d99432;
+  --warning-subtle: #2d2110;
+  --danger: #cf4d4d;
+  --danger-subtle: #2d1515;
 }
 
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+html, body {
+  font-family: 'Onest', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: var(--bg-canvas);
+  color: var(--text-primary);
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Tabular numerals for clean stats and metrics */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
 }
