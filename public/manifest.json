@@ -23,11 +23,24 @@
         "*://*.lever.co/*",
         "*://*.myworkdayjobs.com/*",
         "*://*.ashbyhq.com/*",
+        "*://docs.google.com/forms/*",
+        "*://forms.gle/*",
+        "*://forms.office.com/*",
+        "*://forms.microsoft.com/*",
+        "*://forms.zoho.com/*",
+        "*://forms.zohopublic.com/*",
+        "*://forms.zohopublic.in/*",
+        "*://recruit.zoho.com/*",
+        "*://recruit.zoho.in/*",
+        "*://*.zohorecruit.com/*",
+        "*://app.keka.com/*",
+        "*://*.keka.com/*",
         "*://*/*job*/*",
         "*://*/*career*/*",
         "*://*/*apply*/*"
       ],
       "js": ["content.js"],
+      "all_frames": true,
       "run_at": "document_idle"
     }
   ],
@@ -35,5 +48,23 @@
     "storage",
     "activeTab",
     "scripting"
+  ],
+  "host_permissions": [
+    "*://*.greenhouse.io/*",
+    "*://*.lever.co/*",
+    "*://*.myworkdayjobs.com/*",
+    "*://*.ashbyhq.com/*",
+    "*://docs.google.com/forms/*",
+    "*://forms.gle/*",
+    "*://forms.office.com/*",
+    "*://forms.microsoft.com/*",
+    "*://forms.zoho.com/*",
+    "*://forms.zohopublic.com/*",
+    "*://forms.zohopublic.in/*",
+    "*://recruit.zoho.com/*",
+    "*://recruit.zoho.in/*",
+    "*://*.zohorecruit.com/*",
+    "*://app.keka.com/*",
+    "*://*.keka.com/*"
   ]
 }

@@ -5,18 +5,20 @@
 
 import { UniversalFormScanner } from '../scanner/formScanner';
 import { executeFillInstructions, FillInstruction } from '../filling/fillCoordinator';
+import { FillApprovedFieldsRequest, FillApprovedFieldsResponse } from '../messaging/protocol';
 
 console.log('[AutoApply] Universal Form Scanner and Autofill script loaded on:', window.location.href);
 
 const scanner = new UniversalFormScanner(document);
 
-// Listen for messages from Popup or Sidepanel
+// Listen for messages from Popup or Dashboard
 chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   if (request.type === 'PING_CONTENT') {
     sendResponse({
       status: 'READY',
       url: window.location.href,
       title: document.title,
+      isIframe: window !== window.top,
     });
     return true;
   }
@@ -27,13 +29,52 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
     return true;
   }
 
-  if (request.type === 'EXECUTE_FILL') {
-    const { sessionId, instructions } = request as {
-      sessionId: string;
-      instructions: FillInstruction[];
-    };
-    const report = executeFillInstructions(sessionId, instructions || []);
-    sendResponse(report);
+  // Unified contract for fill execution
+  if (request.type === 'FILL_APPROVED_FIELDS') {
+    const req = request as FillApprovedFieldsRequest;
+    const { sessionId, instructions } = req;
+
+    if (!sessionId) {
+      const errRes: FillApprovedFieldsResponse = {
+        success: false,
+        error: 'Missing scan session ID.',
+      };
+      sendResponse(errRes);
+      return true;
+    }
+
+    if (!instructions || !Array.isArray(instructions) || instructions.length === 0) {
+      const errRes: FillApprovedFieldsResponse = {
+        success: false,
+        error: 'No fill instructions received.',
+      };
+      sendResponse(errRes);
+      return true;
+    }
+
+    // Convert and enforce that every instruction is strictly approved
+    const fillInstructions: FillInstruction[] = instructions.map((i) => ({
+      fieldId: i.fieldId,
+      proposedValue: i.proposedValue,
+      approved: Boolean(i.approved),
+      overwriteExisting: Boolean(i.overwriteExisting),
+      isAmbiguous: Boolean(i.isAmbiguous),
+      scanTimeValue: i.scanTimeValue,
+    }));
+
+    try {
+      const report = executeFillInstructions(sessionId, fillInstructions);
+      const successRes: FillApprovedFieldsResponse = {
+        success: true,
+        report,
+      };
+      sendResponse(successRes);
+    } catch (err: any) {
+      sendResponse({
+        success: false,
+        error: err.message || 'Execution failed in content script.',
+      });
+    }
     return true;
   }
 
@@ -62,15 +103,24 @@ const observer = new MutationObserver((mutations) => {
         }
       }
     } else if (m.type === 'attributes') {
+      const target = m.target as HTMLElement;
       const attr = m.attributeName || '';
-      if (['disabled', 'readonly', 'required', 'aria-required', 'aria-disabled', 'aria-hidden', 'hidden', 'style', 'class'].includes(attr)) {
-        hasRelevantChange = true;
-        break;
+      if (
+        attr === 'disabled' ||
+        attr === 'readonly' ||
+        attr === 'required' ||
+        attr.startsWith('aria-') ||
+        attr === 'hidden' ||
+        attr === 'style'
+      ) {
+        if (target.matches?.('input, select, textarea, [role="combobox"], [role="radiogroup"], label, legend')) {
+          hasRelevantChange = true;
+          break;
+        }
       }
     } else if (m.type === 'characterData') {
-      // Label text or legend change
-      const parent = m.target.parentElement;
-      if (parent && (parent.tagName.toLowerCase() === 'label' || parent.tagName.toLowerCase() === 'legend' || parent.closest('label, legend'))) {
+      const parent = (m.target as Node).parentElement;
+      if (parent && (parent.tagName === 'LABEL' || parent.tagName === 'LEGEND' || parent.closest('label, legend'))) {
         hasRelevantChange = true;
         break;
       }
@@ -79,12 +129,12 @@ const observer = new MutationObserver((mutations) => {
   }
 
   if (hasRelevantChange) {
-    clearTimeout(mutationTimeout);
+    if (mutationTimeout) clearTimeout(mutationTimeout);
     mutationTimeout = setTimeout(() => {
       chrome.runtime.sendMessage({ type: 'DYNAMIC_FORM_CHANGED' }).catch(() => {
-        // Suppress error if popup/sidepanel is closed
+        // Suppress errors when popup/dashboard is closed
       });
-    }, 500);
+    }, 400);
   }
 });
 
@@ -92,6 +142,6 @@ observer.observe(document.body || document.documentElement, {
   childList: true,
   subtree: true,
   attributes: true,
-  attributeFilter: ['disabled', 'readonly', 'required', 'aria-required', 'aria-disabled', 'aria-hidden', 'hidden', 'style'],
+  attributeFilter: ['disabled', 'readonly', 'required', 'aria-disabled', 'aria-required', 'aria-hidden', 'hidden', 'style'],
   characterData: true,
 });

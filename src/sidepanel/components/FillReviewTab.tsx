@@ -93,21 +93,23 @@ export const FillReviewTab: React.FC<FillReviewTabProps> = ({
       canonicalKey: f.canonicalKey,
       proposedValue: f.proposedValue,
       scanTimeValue: f.currentValue,
-      overwriteExisting: !!f.isOverwrite,
-      isAmbiguous: !!f.isAmbiguous,
+      approved: true, // Strictly validated
+      overwriteExisting: Boolean(f.isOverwrite),
+      isAmbiguous: Boolean(f.isAmbiguous),
+      scanSessionId: sessionId,
     }));
 
-    if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.query) {
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        const tab = tabs[0];
-        if (!tab?.id) {
+    if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+      chrome.runtime.sendMessage({ type: 'GET_ACTIVE_APPLICATION_TAB' }, (target) => {
+        const targetTabId = target?.tabId;
+        if (!targetTabId) {
           setIsFilling(false);
-          setErrorMessage('No active tab to execute autofill.');
+          setErrorMessage('Target application tab is no longer active. Please re-scan.');
           return;
         }
 
         chrome.tabs.sendMessage(
-          tab.id,
+          targetTabId,
           {
             type: 'FILL_APPROVED_FIELDS',
             sessionId,
@@ -117,18 +119,20 @@ export const FillReviewTab: React.FC<FillReviewTabProps> = ({
             setIsFilling(false);
             if (chrome.runtime.lastError) {
               setErrorMessage(
-                chrome.runtime.lastError.message || 'Failed to communicate with content script.'
+                chrome.runtime.lastError.message || 'Failed to communicate with content script on target page.'
               );
               return;
             }
 
-            if (response && response.report) {
+            if (response && response.success && response.report) {
               setFillReport(response.report);
               if (onFillComplete) {
                 onFillComplete(response.report);
               }
             } else if (response && response.error) {
               setErrorMessage(`Fill execution error: ${response.error}`);
+            } else {
+              setErrorMessage('Fill command completed without confirmation report.');
             }
           }
         );

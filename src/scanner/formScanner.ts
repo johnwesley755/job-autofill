@@ -3,6 +3,7 @@ import { classifyInputElement, isElementVisible, extractSelectOptions } from './
 import { extractFieldLabelDetails, extractSectionContext } from './labelExtractor';
 import { matchFieldToProfile } from '../intelligence/matcher';
 import { scanRegistry } from './elementRegistry';
+import { adapterRegistry } from '../adapters/adapterRegistry';
 
 export class UniversalFormScanner {
   private document: Document;
@@ -13,12 +14,30 @@ export class UniversalFormScanner {
   }
 
   /**
-   * Scans the document for interactive form controls, grouping radio/checkbox options
-   * and populating the scan-session element registry.
+   * Scans the document for interactive form controls, checking platform adapters
+   * first, and falling back to universal DOM scanning.
    */
   public scan(): FormScanSummary {
     const sessionId = scanRegistry.createSession();
     this.revision++;
+
+    const currentUrl = typeof window !== 'undefined' ? window.location.href : '';
+    const adapter = adapterRegistry.findAdapter(currentUrl, this.document);
+
+    if (adapter) {
+      const adapterFields = adapter.scanFields(this.document, sessionId);
+      if (adapterFields.length > 0) {
+        return {
+          scanSessionId: sessionId,
+          url: currentUrl,
+          domain: typeof window !== 'undefined' ? window.location.hostname : 'unknown',
+          totalControls: adapterFields.length,
+          fields: adapterFields,
+          scannedAt: new Date().toISOString(),
+          revision: this.revision,
+        };
+      }
+    }
 
     const rawElements = Array.from(
       this.document.querySelectorAll(

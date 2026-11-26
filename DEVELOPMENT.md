@@ -25,15 +25,28 @@
 ### Stage 10 & 11 — Standalone Dashboard, Onest Typography & UI Redesign
 - **Full-Page Standalone Dashboard (`app.html` & `src/app/index.tsx`)**:
   - Manifest V3 `chrome.action.onClicked` listener launches/focuses the standalone dashboard tab at `chrome-extension://<id>/app.html`.
-  - Removed small popup action.
   - Sidebar workspace navigation: Overview, Personal Details, Education, Experience, Skills & Links, Job Preferences, Resume Library, Form Assistant, and Settings.
   - Honest Dashboard Overview displaying live profile completeness, stored IndexedDB resume counts, and active browser tab target status.
 - **Onest Typography (`public/fonts/`)**:
   - Self-hosted Google Fonts Onest WOFF2 files (weights 400, 500, 600, 700) bundled directly inside the extension for offline capability.
-- **Hallmark Visual Design System**:
-  - Refined warm canvas (`#fcfbf9`), deep charcoal text (`#1c1f1d`), and deep forest green accent (`#1e4634`).
-  - Dark mode support using matching deep neutrals.
-  - Strict absence of AI slop: no decorative blobs, fake metrics, generic testimonials, or flashy gradient cards.
-- **Extension Packaging & Validation**:
-  - `scripts/validate-extension.mjs` verifies `app.html`, manifest paths, and font assets.
-  - `scripts/package-extension.mjs` generates `job-autofill-extension.zip`.
+- **Design Tokens**: Eliminated all raw `bg-gray-*` and `bg-grey-*` classes across the entire codebase, replacing them with semantic tokens (`bg-canvas`, `bg-surface`, `bg-subtle`, `text-accent`, etc.).
+
+### Stage 12 — Platform Adapters & User-Triggered Autofill
+- **Shared Messaging Protocol (`src/messaging/protocol.ts`)**:
+  - Unified typed contracts: `PING_CONTENT`, `GET_ACTIVE_APPLICATION_TAB`, `SCAN_FORM_SUMMARY`, `FILL_APPROVED_FIELDS`, `DYNAMIC_FORM_CHANGED`.
+  - Eliminated discrepancy where `FillReviewTab` sent `FILL_APPROVED_FIELDS` while `content/index.ts` listened for `EXECUTE_FILL`.
+  - Added strict instruction payload validation requiring `approved === true`.
+- **User-Triggered Autofill Workflow**:
+  - Removed automatic `scanCurrentTab(true)` on mount.
+  - Form Assistant displays an idle state with target tab information and requires explicit click on **Start Autofilling**.
+  - Review tab requires explicit click on **Fill Approved Fields**.
+- **Platform Adapter Architecture (`src/adapters/`)**:
+  - `GoogleFormsAdapter`: Detects Google Forms (`docs.google.com/forms`, `forms.gle`) and parses text, textarea, radio, and checkbox questions.
+  - `MicrosoftFormsAdapter`: Detects MS Forms (`forms.office.com`, `forms.microsoft.com`) and parses question titles and controls.
+  - `ZohoFormsAdapter`: Detects Zoho Forms (`forms.zoho.com`, `forms.zohopublic.com`).
+  - `ZohoRecruitAdapter`: Detects Zoho Recruit candidate portals (`recruit.zoho.com`, `zohorecruit.com`).
+  - `KekaAdapter`: Detects Keka application forms (`app.keka.com`, `keka.com`).
+- **External Active Tab Tracking (`src/background/index.ts`)**:
+  - Tracks last active non-extension tab so opening the dashboard or popup does not target itself.
+- **Domain Coverage (`public/manifest.json`)**:
+  - Added explicit match and host permission patterns for Google Forms, MS Forms, Zoho Forms, Zoho Recruit, and Keka with `all_frames: true` for embedded forms.
