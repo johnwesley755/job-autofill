@@ -20,6 +20,7 @@ export interface ProposedFieldFill {
   isAmbiguous: boolean;
   ambiguityReason?: string;
   isOverwrite: boolean; // Distinct decision from normal fill
+  frameId?: number;
   warningReason?: string;
 }
 
@@ -102,6 +103,7 @@ export function createProposedFieldFills(
       hasConflictOrWarning,
       isAmbiguous,
       isOverwrite: false,
+      frameId: field.frameId,
       warningReason,
     });
   }

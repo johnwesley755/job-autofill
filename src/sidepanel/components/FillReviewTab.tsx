@@ -98,18 +98,6 @@ export const FillReviewTab: React.FC<FillReviewTabProps> = ({
       return;
     }
 
-    const instructions = approvedFills.map((f) => ({
-      fieldId: f.fieldId,
-      canonicalKey: f.canonicalKey,
-      proposedValue: f.proposedValue,
-      scanTimeValue: f.currentValue,
-      approved: true, // Strictly validated
-      overwriteExisting: Boolean(f.isOverwrite),
-      isAmbiguous: Boolean(f.isAmbiguous),
-      scanSessionId: sessionId,
-      frameId: targetContext.frameId,
-    }));
-
     if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.get) {
       // Step 1: Verify the locked target tab still exists and URL origin matches
       chrome.tabs.get(targetContext.tabId, (currentTab) => {
@@ -133,37 +121,80 @@ export const FillReviewTab: React.FC<FillReviewTabProps> = ({
           // Ignore parse errors
         }
 
-        // Step 2: Route fill instructions with locked context to content script on target tab & frame
-        chrome.tabs.sendMessage(
-          targetContext.tabId,
-          {
-            type: 'FILL_APPROVED_FIELDS',
-            sessionId,
-            instructions,
-            targetContext,
-            frameId: targetContext.frameId,
-          },
-          (response) => {
-            setIsFilling(false);
-            if (chrome.runtime.lastError) {
-              setErrorMessage(
-                chrome.runtime.lastError.message || 'Failed to communicate with content script on target page.'
-              );
-              return;
-            }
-
-            if (response && response.success && response.report) {
-              setFillReport(response.report);
-              if (onFillComplete) {
-                onFillComplete(response.report);
-              }
-            } else if (response && response.error) {
-              setErrorMessage(`Fill execution error: ${response.error}`);
-            } else {
-              setErrorMessage('Fill command completed without confirmation report.');
-            }
+        // Step 2: Group instructions by target frameId for frame-specific dispatching
+        const instructionsByFrame = new Map<number, typeof approvedFills>();
+        for (const f of approvedFills) {
+          const fId = f.frameId !== undefined ? f.frameId : targetContext.frameId || 0;
+          if (!instructionsByFrame.has(fId)) {
+            instructionsByFrame.set(fId, []);
           }
-        );
+          instructionsByFrame.get(fId)!.push(f);
+        }
+
+        const aggregatedResults: FillSessionReport = {
+          sessionId,
+          timestamp: new Date().toISOString(),
+          totalRequested: approvedFills.length,
+          filledCount: 0,
+          skippedCount: 0,
+          failedCount: 0,
+          results: [],
+        };
+
+        let framesCompleted = 0;
+        const totalFramesToDispatch = instructionsByFrame.size;
+
+        instructionsByFrame.forEach((frameFills, fId) => {
+          const frameInstructions = frameFills.map((f) => ({
+            fieldId: f.fieldId,
+            canonicalKey: f.canonicalKey,
+            proposedValue: f.proposedValue,
+            scanTimeValue: f.currentValue,
+            approved: true, // Strictly validated
+            overwriteExisting: Boolean(f.isOverwrite),
+            isAmbiguous: Boolean(f.isAmbiguous),
+            scanSessionId: sessionId,
+            frameId: fId,
+          }));
+
+          chrome.tabs.sendMessage(
+            targetContext.tabId,
+            {
+              type: 'FILL_APPROVED_FIELDS',
+              sessionId,
+              instructions: frameInstructions,
+              targetContext: { ...targetContext, frameId: fId },
+              frameId: fId,
+            },
+            { frameId: fId },
+            (response) => {
+              framesCompleted++;
+              if (response && response.success && response.report) {
+                aggregatedResults.filledCount += response.report.filledCount;
+                aggregatedResults.skippedCount += response.report.skippedCount;
+                aggregatedResults.failedCount += response.report.failedCount;
+                aggregatedResults.results.push(...response.report.results);
+              } else {
+                aggregatedResults.failedCount += frameInstructions.length;
+                for (const instr of frameInstructions) {
+                  aggregatedResults.results.push({
+                    fieldId: instr.fieldId,
+                    status: 'failed',
+                    message: response?.error || 'Frame communication failed.',
+                  });
+                }
+              }
+
+              if (framesCompleted === totalFramesToDispatch) {
+                setIsFilling(false);
+                setFillReport(aggregatedResults);
+                if (onFillComplete) {
+                  onFillComplete(aggregatedResults);
+                }
+              }
+            }
+          );
+        });
       });
     } else {
       setIsFilling(false);

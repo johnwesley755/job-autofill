@@ -205,5 +205,37 @@ describe('Autofill Engine Modules', () => {
       expect(report.skippedCount).toBe(1);
       expect(input.value).toBe('Existing Typed Name');
     });
+
+    it('reports rejected_by_site when a custom handler or page refuses value update', async () => {
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.id = 'stubborn_field';
+      container.appendChild(input);
+
+      // Prevent input value from ever updating
+      Object.defineProperty(input, 'value', {
+        get: () => 'static_old_val',
+        set: () => {},
+        configurable: true,
+      });
+
+      const sessionId = scanRegistry.createSession();
+      const fieldId = 'field_stubborn';
+      scanRegistry.register(fieldId, input, 'static_old_val');
+
+      const report = await executeFillInstructions(sessionId, [
+        {
+          fieldId,
+          proposedValue: 'desired_new_val',
+          approved: true,
+          overwriteExisting: true,
+          scanTimeValue: 'static_old_val',
+        },
+      ]);
+
+      expect(report.filledCount).toBe(0);
+      expect(report.failedCount).toBe(1);
+      expect(report.results[0].status).toBe('rejected_by_site');
+    });
   });
 });

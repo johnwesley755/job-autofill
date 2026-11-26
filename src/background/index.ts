@@ -1,9 +1,9 @@
 /**
  * AutoApply Background Service Worker (Manifest V3)
- * Handles external active application tab tracking, dashboard launch, and message relaying.
+ * Handles external active application tab tracking, dashboard launch, frame discovery, and message relaying.
  */
 
-import { GetActiveApplicationTabResponse } from '../messaging/protocol';
+import { GetActiveApplicationTabResponse, DiscoverFramesResponse, DiscoveredFrameInfo } from '../messaging/protocol';
 
 // Supported hostnames or patterns for application forms
 const SUPPORTED_HOST_PATTERNS = [
@@ -94,7 +94,7 @@ async function persistTrackedTab(tabId: number, url: string, title?: string) {
       // Fallback to local storage if session storage is unavailable
       chrome.storage.local.set({ [STORAGE_KEY_LAST_TAB]: tabInfo });
     });
-  } catch (err) {
+  } catch {
     // Ignore invalid URLs
   }
 }
@@ -188,10 +188,53 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // Request tracked external application tab for Form Assistant
+  // Phase 1: Frame Discovery
+  if (message.type === 'DISCOVER_FRAMES') {
+    const targetTabId = message.tabId;
+    if (!targetTabId) {
+      sendResponse({ tabId: 0, frames: [], inaccessibleFramesCount: 0 });
+      return true;
+    }
+
+    (async () => {
+      try {
+        const frameDetails = await chrome.webNavigation.getAllFrames({ tabId: targetTabId });
+        const frames: DiscoveredFrameInfo[] = [];
+        let inaccessibleCount = 0;
+
+        if (frameDetails && Array.isArray(frameDetails)) {
+          for (const f of frameDetails) {
+            if (!isExtensionOrBrowserInternalUrl(f.url)) {
+              frames.push({
+                frameId: f.frameId,
+                url: f.url,
+                error: f.errorOccurred ? 'Navigation error in frame' : undefined,
+              });
+            }
+          }
+        }
+        const resp: DiscoverFramesResponse = {
+          tabId: targetTabId,
+          frames,
+          inaccessibleFramesCount: inaccessibleCount,
+        };
+        sendResponse(resp);
+      } catch (err: any) {
+        // webNavigation might not have permissions or tab not ready; fallback to frame 0
+        sendResponse({
+          tabId: targetTabId,
+          frames: [{ frameId: 0, url: '' }],
+          inaccessibleFramesCount: 0,
+        });
+      }
+    })();
+    return true;
+  }
+
+  // Phase 2: Secure Application Tab Tracking (Strict - NO ARBITRARY FALLBACK)
   if (message.type === 'GET_ACTIVE_APPLICATION_TAB') {
     (async () => {
-      // 1. Try to read persisted tab context first
+      // 1. Check persisted tracked external tab
       const persisted = await getPersistedTrackedTab();
       if (persisted && persisted.tabId) {
         try {
@@ -213,37 +256,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
       }
 
-      // 2. Fallback: Query all non-extension tabs in current or other windows
-      const allTabs = await chrome.tabs.query({});
-      const externalTabs = allTabs.filter((t) => t.url && !isExtensionOrBrowserInternalUrl(t.url));
+      // 2. Query only currently active non-extension tab in the last focused window
+      const activeTabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      const externalActive = activeTabs.find((t) => t.url && !isExtensionOrBrowserInternalUrl(t.url));
 
-      // Prefer supported domain if active or available, otherwise active external tab
-      const supportedCandidate = externalTabs.find((t) => isSupportedApplicationDomain(t.url));
-      const activeCandidate = externalTabs.find((t) => t.active);
-      const candidateTab = supportedCandidate || activeCandidate || externalTabs[0];
-
-      if (candidateTab && candidateTab.id && candidateTab.url) {
-        await persistTrackedTab(candidateTab.id, candidateTab.url, candidateTab.title);
-        const domain = new URL(candidateTab.url).hostname;
-
+      if (externalActive && externalActive.id && externalActive.url) {
+        await persistTrackedTab(externalActive.id, externalActive.url, externalActive.title);
+        const domain = new URL(externalActive.url).hostname;
         const resp: GetActiveApplicationTabResponse = {
-          tabId: candidateTab.id,
-          url: candidateTab.url,
-          title: candidateTab.title ?? null,
+          tabId: externalActive.id,
+          url: externalActive.url,
+          title: externalActive.title ?? null,
           domain,
-          isSupportedDomain: isSupportedApplicationDomain(candidateTab.url),
+          isSupportedDomain: isSupportedApplicationDomain(externalActive.url),
         };
         sendResponse(resp);
-      } else {
-        const resp: GetActiveApplicationTabResponse = {
-          tabId: null,
-          url: null,
-          title: null,
-          domain: null,
-          isSupportedDomain: false,
-        };
-        sendResponse(resp);
+        return;
       }
+
+      // If no valid external application tab is found, return empty (explicit user selection required)
+      const emptyResp: GetActiveApplicationTabResponse = {
+        tabId: null,
+        url: null,
+        title: null,
+        domain: null,
+        isSupportedDomain: false,
+      };
+      sendResponse(emptyResp);
     })();
     return true;
   }
@@ -267,6 +306,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         type: 'TAB_FORM_MUTATED',
         tabId: sender.tab?.id,
         url: sender.tab?.url,
+        frameId: sender.frameId,
       })
       .catch(() => {
         // Suppress error if dashboard is not actively open

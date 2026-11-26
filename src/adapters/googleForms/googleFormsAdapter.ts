@@ -7,7 +7,7 @@ import { isElementVisible } from '../../scanner/classifier';
 export class GoogleFormsAdapter implements FormAdapter {
   platformId = 'google_forms';
   platformName = 'Google Forms';
-  version = '2.0.0';
+  version = '2.1.0';
 
   canHandle(url: string, document: Document): boolean {
     return (
@@ -20,7 +20,7 @@ export class GoogleFormsAdapter implements FormAdapter {
   scanFields(document: Document, sessionId: string): DetectedField[] {
     const fields: DetectedField[] = [];
 
-    // Google Forms items are usually wrapped in [role="listitem"] or .freebirdFormviewerViewNumberedItemContainer
+    // Support question containers across Google Forms layouts
     const questionContainers = Array.from(
       document.querySelectorAll('[role="listitem"], .freebirdFormviewerViewNumberedItemContainer, [jsmodel="CP1oW"]')
     ) as HTMLElement[];
@@ -112,7 +112,7 @@ export class GoogleFormsAdapter implements FormAdapter {
         continue;
       }
 
-      // 3. Radio Group (Multiple choice / Linear scale)
+      // 3. Radio Group (Multiple choice / Linear scale / Grid rows)
       const radioElements = Array.from(
         container.querySelectorAll('[role="radio"], input[type="radio"]')
       ) as HTMLElement[];
@@ -251,7 +251,7 @@ export class GoogleFormsAdapter implements FormAdapter {
   }
 
   /**
-   * Platform-specific filling handler for custom Google Forms widgets
+   * Platform-specific filling handler for Google Forms controls
    */
   async fillControl(
     field: DetectedField,
@@ -273,7 +273,7 @@ export class GoogleFormsAdapter implements FormAdapter {
 
       if (match) {
         match.click();
-        match.focus();
+        match.setAttribute('aria-checked', 'true');
         match.dispatchEvent(new Event('input', { bubbles: true }));
         match.dispatchEvent(new Event('change', { bubbles: true }));
         return true;
@@ -295,22 +295,28 @@ export class GoogleFormsAdapter implements FormAdapter {
         const shouldBeChecked = targetVals.includes(val.toLowerCase().trim());
         if (isCurrentChecked !== shouldBeChecked) {
           cb.click();
+          cb.setAttribute('aria-checked', shouldBeChecked ? 'true' : 'false');
           anyClicked = true;
         }
       }
       return anyClicked;
     }
 
-    // Google forms custom dropdowns
+    // Google forms custom dropdowns scoped specifically to this question container
     if (field.type === 'custom-select' && element) {
       element.click();
-      // Wait microtick for options to expand
-      await new Promise((r) => setTimeout(r, 50));
-      const options = Array.from(document.querySelectorAll('[role="option"]')) as HTMLElement[];
+      await new Promise((r) => setTimeout(r, 60));
+      // Look for options inside container or active popup menu
+      const questionContainer = element.closest('[role="listitem"]') || element.parentElement;
+      const scopedOptions = Array.from(
+        (questionContainer?.querySelectorAll('[role="option"]') || document.querySelectorAll('[role="option"]'))
+      ) as HTMLElement[];
+
       const targetStr = String(value).toLowerCase().trim();
-      const matchOption = options.find((opt) => opt.textContent?.toLowerCase().trim() === targetStr);
+      const matchOption = scopedOptions.find((opt) => opt.textContent?.toLowerCase().trim() === targetStr);
       if (matchOption) {
         matchOption.click();
+        element.setAttribute('data-value', String(value));
         return true;
       }
       return false;

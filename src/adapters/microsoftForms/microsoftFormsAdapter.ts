@@ -7,7 +7,7 @@ import { isElementVisible } from '../../scanner/classifier';
 export class MicrosoftFormsAdapter implements FormAdapter {
   platformId = 'microsoft_forms';
   platformName = 'Microsoft Forms';
-  version = '2.0.0';
+  version = '2.1.0';
 
   canHandle(url: string, document: Document): boolean {
     return (
@@ -36,7 +36,7 @@ export class MicrosoftFormsAdapter implements FormAdapter {
       const isRequired = item.querySelector('[aria-required="true"], .required-star, [data-automation-id="requiredStar"]') !== null;
       idx++;
 
-      // 1. Text input or textarea
+      // 1. Text input or textarea (Long answer support)
       const textControl = item.querySelector('input[type="text"], textarea') as HTMLInputElement | HTMLTextAreaElement | null;
       if (textControl && !scanRegistry.hasElement(textControl)) {
         const fieldId = `msf_text_${idx}`;
@@ -162,7 +162,7 @@ export class MicrosoftFormsAdapter implements FormAdapter {
         continue;
       }
 
-      // 4. Dropdown
+      // 4. Dropdown (Fluent UI Combobox)
       const dropdown = item.querySelector('[role="combobox"], select, [data-automation-id="dropdownSelect"]') as HTMLElement | null;
       if (dropdown && !scanRegistry.hasElement(dropdown)) {
         const fieldId = `msf_dropdown_${idx}`;
@@ -199,7 +199,7 @@ export class MicrosoftFormsAdapter implements FormAdapter {
   async fillControl(
     field: DetectedField,
     value: string | boolean | string[],
-    _element: HTMLElement,
+    element: HTMLElement,
     groupedElements?: HTMLElement[]
   ): Promise<boolean> {
     if (field.type === 'radio-group' && groupedElements && groupedElements.length > 0) {
@@ -211,6 +211,9 @@ export class MicrosoftFormsAdapter implements FormAdapter {
       });
       if (match) {
         match.click();
+        match.setAttribute('aria-checked', 'true');
+        if (match instanceof HTMLInputElement) match.checked = true;
+        match.dispatchEvent(new Event('input', { bubbles: true }));
         match.dispatchEvent(new Event('change', { bubbles: true }));
         return true;
       }
@@ -227,10 +230,29 @@ export class MicrosoftFormsAdapter implements FormAdapter {
         const shouldBe = targets.includes(val.toLowerCase().trim());
         if (isCurrent !== shouldBe) {
           cb.click();
+          cb.setAttribute('aria-checked', shouldBe ? 'true' : 'false');
+          if (cb instanceof HTMLInputElement) cb.checked = shouldBe;
+          cb.dispatchEvent(new Event('input', { bubbles: true }));
+          cb.dispatchEvent(new Event('change', { bubbles: true }));
           anyClicked = true;
         }
       }
       return anyClicked;
+    }
+
+    // Microsoft Forms Dropdown (Fluent UI select)
+    if (field.type === 'custom-select' && element) {
+      element.click();
+      await new Promise((r) => setTimeout(r, 60));
+      const options = Array.from(document.querySelectorAll('[role="option"], .ms-Dropdown-item')) as HTMLElement[];
+      const targetStr = String(value).toLowerCase().trim();
+      const match = options.find((opt) => opt.textContent?.toLowerCase().trim() === targetStr);
+      if (match) {
+        match.click();
+        element.setAttribute('data-value', String(value));
+        return true;
+      }
+      return false;
     }
 
     return false;

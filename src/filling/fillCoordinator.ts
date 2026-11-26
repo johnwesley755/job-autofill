@@ -46,9 +46,98 @@ export interface FillSessionReport {
 }
 
 /**
+ * Reads live DOM value from native or custom control.
+ */
+export function readLiveDomValue(
+  el: HTMLElement,
+  groupedElements?: HTMLElement[]
+): string | boolean | string[] {
+  const inputType = (el.getAttribute('type') || '').toLowerCase();
+  const role = el.getAttribute('role') || '';
+
+  if (groupedElements && groupedElements.length > 0) {
+    if (inputType === 'radio' || role === 'radio') {
+      const checked = groupedElements.find(
+        (r) => (r as HTMLInputElement).checked || r.getAttribute('aria-checked') === 'true'
+      );
+      return checked
+        ? (checked as HTMLInputElement).value ||
+            checked.getAttribute('data-value') ||
+            checked.getAttribute('aria-label') ||
+            checked.textContent?.trim() ||
+            ''
+        : '';
+    } else {
+      return groupedElements
+        .filter((c) => (c as HTMLInputElement).checked || c.getAttribute('aria-checked') === 'true')
+        .map(
+          (c) =>
+            (c as HTMLInputElement).value ||
+            c.getAttribute('data-value') ||
+            c.getAttribute('aria-label') ||
+            c.textContent?.trim() ||
+            ''
+        )
+        .sort();
+    }
+  }
+
+  if (el instanceof HTMLInputElement && el.type === 'checkbox') {
+    return el.checked;
+  }
+
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
+    return el.value || '';
+  }
+
+  if (el.isContentEditable) {
+    return el.innerText?.trim() || el.textContent?.trim() || '';
+  }
+
+  // Custom ARIA listbox or combobox: inspect selected option or text content
+  if (role === 'combobox' || role === 'listbox') {
+    const selectedOption = el.querySelector('[aria-selected="true"], [role="option"][aria-selected="true"]');
+    if (selectedOption) {
+      return selectedOption.getAttribute('data-value') || selectedOption.textContent?.trim() || '';
+    }
+    return el.getAttribute('data-value') || el.textContent?.trim() || '';
+  }
+
+  return el.textContent?.trim() || '';
+}
+
+/**
+ * Compares two values for semantic equality in forms.
+ */
+export function areFormValuesEqual(
+  actual: string | boolean | string[],
+  expected: string | boolean | string[]
+): boolean {
+  if (Array.isArray(expected)) {
+    const actArr = Array.isArray(actual)
+      ? actual.map((v) => String(v).toLowerCase().trim()).sort()
+      : [String(actual).toLowerCase().trim()];
+    const expArr = expected.map((v) => String(v).toLowerCase().trim()).sort();
+    return JSON.stringify(actArr) === JSON.stringify(expArr);
+  }
+
+  if (typeof expected === 'boolean') {
+    if (typeof actual === 'boolean') return actual === expected;
+    const strAct = String(actual).toLowerCase().trim();
+    if (expected && ['true', 'yes', 'on', '1'].includes(strAct)) return true;
+    if (!expected && ['false', 'no', 'off', '0', ''].includes(strAct)) return true;
+    return false;
+  }
+
+  const actStr = String(actual ?? '').toLowerCase().trim();
+  const expStr = String(expected ?? '').toLowerCase().trim();
+  return actStr === expStr;
+}
+
+/**
  * Coordinates execution of approved field fills using the scan-session element registry.
  * Validates DOM node presence, visibility, disabled state, adapter custom control filling,
- * and verifies value after assignment.
+ * waits for platform state to settle, and strictly verifies DOM value against expected value.
  */
 export async function executeFillInstructions(
   sessionId: string,
@@ -130,43 +219,13 @@ export async function executeFillInstructions(
       continue;
     }
 
-    // Safety: Retrieve current live DOM value (handling array for checkbox groups)
-    let currentVal: string | boolean | string[] = '';
-    const tagName = el.tagName.toLowerCase();
-    const inputType = (el.getAttribute('type') || '').toLowerCase();
-
-    if (reg.groupedElements && reg.groupedElements.length > 0) {
-      if (inputType === 'radio' || el.getAttribute('role') === 'radio') {
-        const checked = reg.groupedElements.find(
-          (r) => (r as HTMLInputElement).checked || r.getAttribute('aria-checked') === 'true'
-        );
-        currentVal = checked
-          ? (checked as HTMLInputElement).value || checked.getAttribute('data-value') || checked.textContent?.trim() || ''
-          : '';
-      } else {
-        currentVal = reg.groupedElements
-          .filter((c) => (c as HTMLInputElement).checked || c.getAttribute('aria-checked') === 'true')
-          .map((c) => (c as HTMLInputElement).value || c.getAttribute('data-value') || c.textContent?.trim() || '')
-          .sort();
-      }
-    } else if (el instanceof HTMLInputElement && el.type === 'checkbox') {
-      currentVal = el.checked;
-    } else if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
-      currentVal = el.value || '';
-    } else {
-      currentVal = el.textContent?.trim() || '';
-    }
+    // Safety: Retrieve current live DOM value
+    const currentVal = readLiveDomValue(el, reg.groupedElements);
 
     // Check if the value changed between scan time and fill execution
     let valueChanged = false;
     if (instr.scanTimeValue !== undefined) {
-      if (Array.isArray(instr.scanTimeValue)) {
-        const scanArr = instr.scanTimeValue.slice().sort();
-        const currArr = Array.isArray(currentVal) ? currentVal : [String(currentVal)];
-        if (JSON.stringify(scanArr) !== JSON.stringify(currArr)) {
-          valueChanged = true;
-        }
-      } else if (currentVal !== instr.scanTimeValue && currentVal !== instr.proposedValue) {
+      if (!areFormValuesEqual(currentVal, instr.scanTimeValue) && !areFormValuesEqual(currentVal, instr.proposedValue)) {
         valueChanged = true;
       }
     }
@@ -187,7 +246,7 @@ export async function executeFillInstructions(
     if (Array.isArray(currentVal)) {
       hasExisting = currentVal.length > 0;
     } else if (typeof currentVal === 'string') {
-      hasExisting = currentVal.trim().length > 0 && currentVal !== String(instr.proposedValue);
+      hasExisting = currentVal.trim().length > 0 && !areFormValuesEqual(currentVal, instr.proposedValue);
     } else if (typeof currentVal === 'boolean') {
       hasExisting = currentVal === true && instr.proposedValue === false;
     }
@@ -203,20 +262,23 @@ export async function executeFillInstructions(
       continue;
     }
 
-    let success = false;
-    let verifiedValue: string | boolean | string[] = '';
+    const tagName = el.tagName.toLowerCase();
+    const inputType = (el.getAttribute('type') || '').toLowerCase();
+    const role = el.getAttribute('role') || '';
 
     try {
+      let adapterHandled = false;
+
       // 1. Try Platform Adapter custom control fill if available
       if (adapter && adapter.fillControl) {
         const syntheticField: DetectedField = {
           id: instr.fieldId,
           type:
             reg.groupedElements && reg.groupedElements.length > 0
-              ? inputType === 'radio' || el.getAttribute('role') === 'radio'
+              ? inputType === 'radio' || role === 'radio'
                 ? 'radio-group'
                 : 'checkbox-group'
-              : el.getAttribute('role') === 'combobox' || el.getAttribute('role') === 'listbox'
+              : role === 'combobox' || role === 'listbox'
               ? 'custom-select'
               : (inputType as any) || 'text',
           label: '',
@@ -226,74 +288,72 @@ export async function executeFillInstructions(
           selector: '',
         };
 
-        const handled = await adapter.fillControl(
+        adapterHandled = await adapter.fillControl(
           syntheticField,
           instr.proposedValue,
           el,
           reg.groupedElements
         );
-
-        if (handled) {
-          success = true;
-          verifiedValue = instr.proposedValue;
-        }
       }
 
       // 2. Standard native control fill fallback if not handled by adapter
-      if (!success) {
+      if (!adapterHandled) {
         if (reg.groupedElements && reg.groupedElements.length > 0) {
-          if (inputType === 'radio' || el.getAttribute('role') === 'radio') {
-            success = setRadioGroupValue(reg.groupedElements as HTMLInputElement[], instr.proposedValue as any);
-            const checked = reg.groupedElements.find((r) => (r as HTMLInputElement).checked);
-            verifiedValue = checked ? (checked as HTMLInputElement).value : '';
+          if (inputType === 'radio' || role === 'radio') {
+            setRadioGroupValue(reg.groupedElements as HTMLInputElement[], instr.proposedValue as any);
           } else {
-            success = setCheckboxValue(
+            setCheckboxValue(
               reg.groupedElements as HTMLInputElement[],
               instr.proposedValue as any,
               Boolean(instr.overwriteExisting)
             );
-            verifiedValue = reg.groupedElements
-              .filter((c) => (c as HTMLInputElement).checked)
-              .map((c) => (c as HTMLInputElement).value);
           }
         } else if (tagName === 'select') {
-          success = setNativeSelectValue(el as HTMLSelectElement, String(instr.proposedValue));
-          verifiedValue = (el as HTMLSelectElement).value;
+          setNativeSelectValue(el as HTMLSelectElement, String(instr.proposedValue));
         } else if (tagName === 'input' && inputType === 'checkbox') {
-          success = setCheckboxValue(
+          setCheckboxValue(
             [el as HTMLInputElement],
             instr.proposedValue as any,
             Boolean(instr.overwriteExisting)
           );
-          verifiedValue = (el as HTMLInputElement).checked;
         } else if (tagName === 'input' || tagName === 'textarea') {
-          success = setNativeInputValue(el as HTMLInputElement | HTMLTextAreaElement, instr.proposedValue as any);
-          verifiedValue = (el as HTMLInputElement | HTMLTextAreaElement).value;
+          setNativeInputValue(el as HTMLInputElement | HTMLTextAreaElement, instr.proposedValue as any);
+        } else if (el.isContentEditable) {
+          el.innerText = String(instr.proposedValue);
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
         } else {
           results.push({
             fieldId: instr.fieldId,
             status: 'unsupported_control',
-            message: `Custom or unsupported control type: <${tagName}>.`,
+            message: `Custom or unsupported control type: <${tagName} role="${role}">.`,
           });
           failedCount++;
           continue;
         }
       }
 
-      if (success) {
+      // Step 3: Wait for platform state to settle
+      await new Promise((resolve) => setTimeout(resolve, 30));
+
+      // Step 4 & 5: Read actual live DOM state and compare against proposed expected value
+      const livePostValue = readLiveDomValue(el, reg.groupedElements);
+      const isVerified = areFormValuesEqual(livePostValue, instr.proposedValue);
+
+      if (isVerified) {
         results.push({
           fieldId: instr.fieldId,
           status: 'filled',
-          verifiedValue,
-          message: 'Field successfully populated and verified.',
+          verifiedValue: livePostValue,
+          message: 'Field successfully populated and verified in DOM.',
         });
         filledCount++;
       } else {
         results.push({
           fieldId: instr.fieldId,
-          status: 'failed',
-          verifiedValue,
-          message: 'Input setter was dispatched but DOM verification failed.',
+          status: 'rejected_by_site',
+          verifiedValue: livePostValue,
+          message: `Interaction dispatched, but site refused value. Expected: "${String(instr.proposedValue)}", Live DOM: "${String(livePostValue)}"`,
         });
         failedCount++;
       }
@@ -301,7 +361,7 @@ export async function executeFillInstructions(
       results.push({
         fieldId: instr.fieldId,
         status: 'failed',
-        message: err.message || 'Error occurred during native input fill.',
+        message: err.message || 'Error occurred during input fill execution.',
       });
       failedCount++;
     }

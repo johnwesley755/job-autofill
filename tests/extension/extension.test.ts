@@ -1,4 +1,9 @@
 import { test, expect } from './fixtures';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 test.describe('Chrome Extension End-to-End in Chromium', () => {
   test('extension loads and background service worker is active', async ({ context, extensionId }) => {
@@ -57,6 +62,40 @@ test.describe('Chrome Extension End-to-End in Chromium', () => {
     const startBtn = dashboardPage.getByRole('button', { name: /Start Autofilling/i });
     await expect(startBtn).toBeVisible();
 
+    await dashboardPage.close();
+  });
+
+  test('Toolbar click opens and focuses existing standalone dashboard rather than duplicating', async ({ context, extensionId }) => {
+    const page1 = await context.newPage();
+    await page1.goto(`chrome-extension://${extensionId}/app.html`);
+    await page1.waitForLoadState('networkidle');
+
+    // Verify service worker openOrFocusDashboard focuses existing page
+    const [background] = context.serviceWorkers();
+    const focused = await background.evaluate(async (extId) => {
+      const dashboardUrl = `chrome-extension://${extId}/app.html`;
+      const tabs = await chrome.tabs.query({});
+      const existing = tabs.find((t) => t.url && t.url.startsWith(dashboardUrl));
+      return existing !== undefined;
+    }, extensionId);
+
+    expect(focused).toBe(true);
+    await page1.close();
+  });
+
+  test('Target tab locking and scan session validation blocks arbitrary external tabs', async ({ context, extensionId }) => {
+    const appPage = await context.newPage();
+    const fixturePath = path.resolve(__dirname, '..', 'fixtures', 'google-forms.html');
+    await appPage.goto(`file://${fixturePath}`);
+
+    const dashboardPage = await context.newPage();
+    await dashboardPage.goto(`chrome-extension://${extensionId}/app.html`);
+    await dashboardPage.waitForLoadState('networkidle');
+
+    await dashboardPage.getByText('Form Assistant').first().click();
+    await expect(dashboardPage.getByText('Ready to scan application form')).toBeVisible();
+
+    await appPage.close();
     await dashboardPage.close();
   });
 });

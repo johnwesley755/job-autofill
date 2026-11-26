@@ -1,7 +1,7 @@
 /**
-2:  * AutoApply Shared Messaging Protocol
-3:  * Strongly-typed contracts for Content Script, Service Worker, Popup, and Dashboard.
-4:  */
+ * AutoApply Shared Messaging Protocol
+ * Strongly-typed contracts for Content Script, Service Worker, Popup, and Dashboard.
+ */
 
 import { FormScanSummary } from '../scanner/types';
 import { FillSessionReport } from '../filling/fillCoordinator';
@@ -21,6 +21,8 @@ export interface ValidatedFillInstruction {
 export interface PersistentScanTargetContext {
   tabId: number;
   url: string;
+  pathname?: string;
+  origin?: string;
   title?: string;
   domain: string;
   platformId: string;
@@ -28,6 +30,12 @@ export interface PersistentScanTargetContext {
   revision: number;
   timestamp: string;
   frameId?: number;
+}
+
+export interface DiscoveredFrameInfo {
+  frameId: number;
+  url: string;
+  error?: string;
 }
 
 export type MessageType =
@@ -54,6 +62,17 @@ export interface PingContentResponse {
   isIframe?: boolean;
 }
 
+export interface DiscoverFramesRequest {
+  type: 'DISCOVER_FRAMES';
+  tabId: number;
+}
+
+export interface DiscoverFramesResponse {
+  tabId: number;
+  frames: DiscoveredFrameInfo[];
+  inaccessibleFramesCount: number;
+}
+
 export interface GetActiveApplicationTabRequest {
   type: 'GET_ACTIVE_APPLICATION_TAB';
 }
@@ -78,7 +97,7 @@ export interface FillApprovedFieldsRequest {
   type: 'FILL_APPROVED_FIELDS';
   sessionId: string;
   instructions: ValidatedFillInstruction[];
-  targetContext?: PersistentScanTargetContext;
+  targetContext: PersistentScanTargetContext;
   frameId?: number;
 }
 
@@ -91,16 +110,19 @@ export interface FillApprovedFieldsResponse {
 export interface DynamicFormChangedNotice {
   type: 'DYNAMIC_FORM_CHANGED';
   url?: string;
+  frameId?: number;
 }
 
 export interface TabFormMutatedBroadcast {
   type: 'TAB_FORM_MUTATED';
   tabId?: number;
   url?: string;
+  frameId?: number;
 }
 
 export type AutoApplyMessage =
   | PingContentRequest
+  | DiscoverFramesRequest
   | GetActiveApplicationTabRequest
   | ScanFormSummaryRequest
   | FillApprovedFieldsRequest

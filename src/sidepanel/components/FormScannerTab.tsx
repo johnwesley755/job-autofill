@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Play, AlertTriangle, FileCheck2, ArrowRight, Globe } from 'lucide-react';
+import { Play, AlertTriangle, FileCheck2, ArrowRight, Globe, Layers } from 'lucide-react';
 import { DetectedField } from '../../scanner/types';
 import { useProfileStore } from '../../store/profileStore';
 import { createProposedFieldFills, ProposedFieldFill } from '../../filling/fieldValueMapper';
 import { FillReviewTab } from './FillReviewTab';
 import { FillSessionReport } from '../../filling/fillCoordinator';
-import { GetActiveApplicationTabResponse, PersistentScanTargetContext } from '../../messaging/protocol';
+import { GetActiveApplicationTabResponse, PersistentScanTargetContext, DiscoverFramesResponse } from '../../messaging/protocol';
 
 export type AssistantWorkflowState =
   | 'idle'
@@ -24,6 +24,7 @@ export const FormScannerTab: React.FC = () => {
   const { profile } = useProfileStore();
   const [workflowState, setWorkflowState] = useState<AssistantWorkflowState>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [inaccessibleFramesCount, setInaccessibleFramesCount] = useState<number>(0);
   const [hasDynamicUpdate, setHasDynamicUpdate] = useState(false);
   const [activeSubTab, setActiveSubTab] = useState<'detected' | 'review'>('detected');
   const [proposedFills, setProposedFills] = useState<ProposedFieldFill[]>([]);
@@ -73,10 +74,11 @@ export const FormScannerTab: React.FC = () => {
     }
   }, [scanResult, profile]);
 
-  // Explicit user action: Start Autofilling
+  // Explicit user action: Start Autofilling with Frame-Aware Discovery
   const handleStartAutofilling = () => {
     setErrorMessage(null);
     setHasDynamicUpdate(false);
+    setInaccessibleFramesCount(0);
     setWorkflowState('locating_target');
 
     if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.tabs) {
@@ -97,47 +99,87 @@ export const FormScannerTab: React.FC = () => {
       const tabId = tabRes.tabId;
       setWorkflowState('scanning');
 
-      // Step 2: Query content script on tab (and eligible frames)
-      chrome.tabs.sendMessage(tabId, { type: 'SCAN_FORM_SUMMARY' }, (response) => {
-        if (chrome.runtime.lastError) {
-          setWorkflowState('content_script_unavailable');
-          setErrorMessage(
-            'Cannot communicate with the application page. Please reload the target tab and make sure it is not restricted.'
-          );
-          return;
+      // Step 2: Discover all eligible frames on the target tab
+      chrome.runtime.sendMessage({ type: 'DISCOVER_FRAMES', tabId }, (discoverRes: DiscoverFramesResponse) => {
+        const frameIds = discoverRes?.frames && discoverRes.frames.length > 0
+          ? discoverRes.frames.map((f) => f.frameId)
+          : [0];
+
+        if (discoverRes?.inaccessibleFramesCount) {
+          setInaccessibleFramesCount(discoverRes.inaccessibleFramesCount);
         }
 
-        if (response && response.fields) {
-          const sessionId = response.scanSessionId || `session-${Date.now()}`;
-          const currentUrl = response.url || tabRes.url || '';
-          const currentDomain = response.domain || tabRes.domain || 'job page';
+        const aggregatedFields: DetectedField[] = [];
+        let completedFrames = 0;
+        let masterSessionId = '';
+        let primaryPlatformId = 'generic';
 
-          // Lock persistent target context for autofill execution
-          setTargetContext({
+        // Scan each frame specifically
+        frameIds.forEach((fId) => {
+          chrome.tabs.sendMessage(
             tabId,
-            url: currentUrl,
-            title: tabRes.title || '',
-            domain: currentDomain,
-            platformId: response.platformId || 'generic',
-            scanSessionId: sessionId,
-            revision: response.revision || 1,
-            timestamp: new Date().toISOString(),
-          });
+            { type: 'SCAN_FORM_SUMMARY', frameId: fId },
+            { frameId: fId },
+            (response) => {
+              completedFrames++;
+              if (!chrome.runtime.lastError && response && response.fields) {
+                if (!masterSessionId && response.scanSessionId) {
+                  masterSessionId = response.scanSessionId;
+                }
+                if (response.platformId && response.platformId !== 'generic') {
+                  primaryPlatformId = response.platformId;
+                }
+                for (const field of response.fields) {
+                  field.frameId = fId;
+                  // Deduplicate fields that might appear identical across frames
+                  const isDuplicate = aggregatedFields.some(
+                    (af) => af.id === field.id && af.label === field.label
+                  );
+                  if (!isDuplicate) {
+                    aggregatedFields.push(field);
+                  }
+                }
+              }
 
-          setScanResult({
-            url: currentUrl,
-            domain: currentDomain,
-            scanSessionId: sessionId,
-            fields: response.fields,
-          });
-        } else {
-          setScanResult({
-            url: tabRes.url || '',
-            domain: tabRes.domain || 'job page',
-            scanSessionId: `empty-${Date.now()}`,
-            fields: [],
-          });
-        }
+              // When all frames have responded
+              if (completedFrames === frameIds.length) {
+                const sessionId = masterSessionId || `session-${Date.now()}`;
+                const currentUrl = tabRes.url || '';
+                let currentOrigin = '';
+                let currentPath = '';
+                try {
+                  const parsed = new URL(currentUrl);
+                  currentOrigin = parsed.origin;
+                  currentPath = parsed.pathname;
+                } catch {
+                  // Ignore
+                }
+
+                // Lock persistent target context for autofill execution
+                setTargetContext({
+                  tabId,
+                  url: currentUrl,
+                  origin: currentOrigin,
+                  pathname: currentPath,
+                  title: tabRes.title || '',
+                  domain: tabRes.domain || 'job page',
+                  platformId: primaryPlatformId,
+                  scanSessionId: sessionId,
+                  revision: 1,
+                  timestamp: new Date().toISOString(),
+                  frameId: 0,
+                });
+
+                setScanResult({
+                  url: currentUrl,
+                  domain: tabRes.domain || 'job page',
+                  scanSessionId: sessionId,
+                  fields: aggregatedFields,
+                });
+              }
+            }
+          );
+        });
       });
     });
   };
@@ -189,6 +231,16 @@ export const FormScannerTab: React.FC = () => {
           >
             Re-sync Form
           </button>
+        </div>
+      )}
+
+      {/* Inaccessible cross-origin iframe notification */}
+      {inaccessibleFramesCount > 0 && (
+        <div className="bg-subtle border border-border-subtle p-3 rounded-lg text-xs text-text-muted flex items-center gap-2">
+          <Layers size={14} className="text-accent shrink-0" />
+          <span>
+            Detected {inaccessibleFramesCount} embedded cross-origin frame(s) that restrict direct browser extension script injection.
+          </span>
         </div>
       )}
 
@@ -317,6 +369,11 @@ export const FormScannerTab: React.FC = () => {
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-subtle text-text-secondary border border-border-subtle">
                           {f.type}
                         </span>
+                        {f.frameId !== undefined && f.frameId > 0 && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-subtle text-text-muted border border-border-subtle">
+                            Frame {f.frameId}
+                          </span>
+                        )}
                         {f.platformId && (
                           <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent-subtle text-accent border border-border-subtle">
                             {f.platformId}
