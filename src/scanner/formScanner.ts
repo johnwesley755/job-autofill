@@ -2,9 +2,11 @@ import { DetectedField, FormScanSummary, FieldOption } from './types';
 import { classifyInputElement, isElementVisible, extractSelectOptions } from './classifier';
 import { extractFieldLabelDetails, extractSectionContext } from './labelExtractor';
 import { matchFieldToProfile } from '../intelligence/matcher';
+import { scanRegistry } from './elementRegistry';
 
 export class UniversalFormScanner {
   private document: Document;
+  private revision: number = 1;
 
   constructor(doc: Document = window.document) {
     this.document = doc;
@@ -12,9 +14,12 @@ export class UniversalFormScanner {
 
   /**
    * Scans the document for interactive form controls, grouping radio/checkbox options
-   * and constructing robust, stable selectors.
+   * and populating the scan-session element registry.
    */
   public scan(): FormScanSummary {
+    const sessionId = scanRegistry.createSession();
+    this.revision++;
+
     const rawElements = Array.from(
       this.document.querySelectorAll(
         'input, select, textarea, [role="combobox"], [aria-haspopup="listbox"]'
@@ -22,21 +27,24 @@ export class UniversalFormScanner {
     ) as HTMLElement[];
 
     const detectedFields: DetectedField[] = [];
-    // Tracking grouped inputs (radios by form/name and checkboxes by fieldset/group)
     const radioGroups = new Map<string, { elements: HTMLInputElement[]; sectionContext: string; label: string; isRequired: boolean }>();
+    const checkboxGroups = new Map<string, { elements: HTMLInputElement[]; sectionContext: string; label: string; isRequired: boolean }>();
     const processedElements = new Set<HTMLElement>();
 
-    // Pass 1: Identify and group radio buttons by form context and name
-    rawElements.forEach((el) => {
-      if (el.tagName.toLowerCase() === 'input' && (el.getAttribute('type') || '').toLowerCase() === 'radio') {
+    // Pass 1: Identify and group radio buttons and multi-choice checkboxes
+    rawElements.forEach((el, index) => {
+      const tagName = el.tagName.toLowerCase();
+      const type = (el.getAttribute('type') || '').toLowerCase();
+
+      if (tagName === 'input' && type === 'radio') {
         const radio = el as HTMLInputElement;
-        const name = radio.name || 'unnamed-radio';
-        const formId = radio.form?.id || radio.closest('form')?.getAttribute('name') || 'root';
-        const groupKey = `${formId}:::${name}`;
+        const name = radio.name || `unnamed-radio-${index}`;
+        // Use form reference or closest form/container identity to prevent collisions between forms
+        const formKey = radio.form ? (radio.form.id || radio.form.getAttribute('name') || `form-${Array.from(this.document.forms).indexOf(radio.form)}`) : 'no-form';
+        const groupKey = `${formKey}:::${name}`;
 
         if (!radioGroups.has(groupKey)) {
           const sectionContext = extractSectionContext(radio);
-          // Label for radio group often comes from legend or parent question header
           const groupContainer = radio.closest('fieldset, .form-group, .field, [class*="radio-group"], .application-question');
           let groupLabel = '';
           let isRequired = radio.required || radio.getAttribute('aria-required') === 'true';
@@ -64,6 +72,25 @@ export class UniversalFormScanner {
         group.elements.push(radio);
         if (radio.required) group.isRequired = true;
         processedElements.add(radio);
+      } else if (tagName === 'input' && type === 'checkbox') {
+        // Group checkboxes only when they share a fieldset or multi-select container with a common legend/question
+        const fieldset = el.closest('fieldset, [data-checkbox-group], [role="group"]');
+        if (fieldset) {
+          const legend = fieldset.querySelector('legend, [class*="label"], [class*="question"]');
+          if (legend && legend.textContent) {
+            const groupKey = `fieldset:::${legend.textContent.trim()}:::${fieldset.id || index}`;
+            if (!checkboxGroups.has(groupKey)) {
+              checkboxGroups.set(groupKey, {
+                elements: [],
+                sectionContext: extractSectionContext(el),
+                label: legend.textContent.replace(/[\n\r\t*]+/g, ' ').replace(/:+\s*$/, '').trim(),
+                isRequired: el.hasAttribute('required') || legend.textContent.includes('*'),
+              });
+            }
+            checkboxGroups.get(groupKey)!.elements.push(el as HTMLInputElement);
+            processedElements.add(el);
+          }
+        }
       }
     });
 
@@ -77,15 +104,20 @@ export class UniversalFormScanner {
       const name = firstRadio.name || undefined;
       const options: FieldOption[] = group.elements.map((r) => {
         const optLabel = extractFieldLabelDetails(r).label || r.value;
-        return { label: optLabel, value: r.value };
+        return { label: optLabel, value: r.value, disabled: r.disabled };
       });
+
+      const checkedRadio = group.elements.find((r) => r.checked);
+      const currentValue = checkedRadio ? checkedRadio.value : '';
 
       const selector = name
         ? `input[type="radio"][name="${CSS.escape(name)}"]`
-        : `input[type="radio"]:nth-of-type(${radioIndex + 1})`;
+        : `input[type="radio"]`;
 
+      const fieldId = `radio-group-${radioIndex}-${name || 'anon'}`;
       const field: DetectedField = {
-        id: `radio-group-${radioIndex}-${name || 'anon'}-${Date.now()}`,
+        id: fieldId,
+        scanSessionId: sessionId,
         name,
         type: 'radio-group',
         label: group.label || name || 'Radio Option',
@@ -95,6 +127,7 @@ export class UniversalFormScanner {
         options,
         sectionContext: group.sectionContext,
         selector,
+        currentValue,
         groupName: name,
         automationId: firstRadio.getAttribute('data-automation-id') || undefined,
         testId: firstRadio.getAttribute('data-testid') || undefined,
@@ -108,16 +141,61 @@ export class UniversalFormScanner {
       field.isAmbiguous = match.isAmbiguous;
       field.ambiguityReason = match.ambiguityReason;
 
+      // Register into memory registry
+      scanRegistry.register(fieldId, firstRadio, currentValue, group.elements);
       detectedFields.push(field);
       radioIndex++;
     });
 
-    // Pass 2: Process individual inputs, checkboxes, selects, textareas, and comboboxes
+    // Add consolidated checkbox group representations
+    let checkboxIndex = 0;
+    checkboxGroups.forEach((group) => {
+      const visible = group.elements.some((c) => isElementVisible(c));
+      if (!visible) return;
+
+      const firstBox = group.elements[0];
+      const options: FieldOption[] = group.elements.map((c) => {
+        const optLabel = extractFieldLabelDetails(c).label || c.value;
+        return { label: optLabel, value: c.value, disabled: c.disabled };
+      });
+
+      const checkedValues = group.elements.filter((c) => c.checked).map((c) => c.value);
+
+      const fieldId = `checkbox-group-${checkboxIndex}`;
+      const field: DetectedField = {
+        id: fieldId,
+        scanSessionId: sessionId,
+        type: 'checkbox-group',
+        label: group.label,
+        isRequired: group.isRequired,
+        isDisabled: group.elements.every((c) => c.disabled),
+        isVisible: true,
+        options,
+        sectionContext: group.sectionContext,
+        selector: `fieldset input[type="checkbox"]`,
+        currentValue: checkedValues,
+        automationId: firstBox.getAttribute('data-automation-id') || undefined,
+        testId: firstBox.getAttribute('data-testid') || undefined,
+        formId: firstBox.form?.id || undefined,
+      };
+
+      const match = matchFieldToProfile(field);
+      field.mappedProfileKey = match.canonicalKey;
+      field.confidenceScore = match.confidenceScore;
+      field.confidenceTier = match.confidenceTier;
+      field.isAmbiguous = match.isAmbiguous;
+      field.ambiguityReason = match.ambiguityReason;
+
+      scanRegistry.register(fieldId, firstBox, checkedValues, group.elements);
+      detectedFields.push(field);
+      checkboxIndex++;
+    });
+
+    // Pass 2: Process individual inputs, standalone checkboxes, selects, textareas, and comboboxes
     rawElements.forEach((htmlEl, index) => {
       if (processedElements.has(htmlEl)) return;
 
       const type = classifyInputElement(htmlEl);
-      // Ignore unknown, non-interactive, and password fields (passwords must never be auto-filled from candidate profiles)
       if (type === 'unknown' || type === 'password') return;
 
       const visible = isElementVisible(htmlEl);
@@ -127,6 +205,8 @@ export class UniversalFormScanner {
         htmlEl.hasAttribute('disabled') ||
         htmlEl.getAttribute('aria-disabled') === 'true' ||
         (htmlEl as HTMLInputElement).disabled;
+
+      const isReadOnly = htmlEl.hasAttribute('readonly') || (htmlEl as HTMLInputElement).readOnly;
 
       const labelDetails = extractFieldLabelDetails(htmlEl);
       const sectionContext = extractSectionContext(htmlEl);
@@ -144,11 +224,23 @@ export class UniversalFormScanner {
       const testId = htmlEl.getAttribute('data-testid') || undefined;
       const formId = (htmlEl as HTMLInputElement).form?.id || htmlEl.closest('form')?.id || undefined;
 
-      // Generate reliable, stable selector
       const selector = this.computeStableSelector(htmlEl, index);
+      const fieldId = `field-${index}-${elementId || name || 'ctrl'}`;
+
+      const tagName = htmlEl.tagName.toLowerCase();
+      // Retrieve current DOM value safely
+      let currentValue: string | boolean = '';
+      if (type === 'checkbox-group') {
+        currentValue = (htmlEl as HTMLInputElement).checked;
+      } else if (type === 'select') {
+        currentValue = (htmlEl as HTMLSelectElement).value || '';
+      } else if (tagName === 'input' || tagName === 'textarea') {
+        currentValue = (htmlEl as HTMLInputElement).value || '';
+      }
 
       const field: DetectedField = {
-        id: `field-${index}-${elementId || name || 'input'}-${Date.now()}`,
+        id: fieldId,
+        scanSessionId: sessionId,
         elementId,
         name,
         type,
@@ -158,9 +250,11 @@ export class UniversalFormScanner {
         autocomplete,
         isRequired,
         isDisabled,
+        isReadOnly,
         isVisible: true,
         sectionContext,
         selector,
+        currentValue,
         automationId,
         testId,
         formId,
@@ -170,7 +264,6 @@ export class UniversalFormScanner {
         field.options = extractSelectOptions(htmlEl as HTMLSelectElement);
       }
 
-      // Match field semantically
       const match = matchFieldToProfile(field);
       field.mappedProfileKey = match.canonicalKey;
       field.confidenceScore = match.confidenceScore;
@@ -178,21 +271,21 @@ export class UniversalFormScanner {
       field.isAmbiguous = match.isAmbiguous;
       field.ambiguityReason = match.ambiguityReason;
 
+      scanRegistry.register(fieldId, htmlEl, currentValue);
       detectedFields.push(field);
     });
 
     return {
+      scanSessionId: sessionId,
       url: this.document.location ? this.document.location.href : '',
       domain: this.document.location ? this.document.location.hostname : '',
       totalControls: rawElements.length,
       fields: detectedFields,
       scannedAt: new Date().toISOString(),
+      revision: this.revision,
     };
   }
 
-  /**
-   * Generates a stable selector avoiding fragile nth-of-type where unique attributes exist.
-   */
   private computeStableSelector(el: HTMLElement, index: number): string {
     if (el.id) {
       return `#${CSS.escape(el.id)}`;
@@ -222,6 +315,12 @@ export class UniversalFormScanner {
       return `${el.tagName.toLowerCase()}[autocomplete="${CSS.escape(autocomplete)}"]`;
     }
 
-    return `${el.tagName.toLowerCase()}:nth-of-type(${index + 1})`;
+    // Use tag name with section or form scoping to avoid global fragile nth-of-type
+    const container = el.closest('form, fieldset, section, div[class*="section"]');
+    if (container && container.id) {
+      return `#${CSS.escape(container.id)} ${el.tagName.toLowerCase()}`;
+    }
+
+    return `${el.tagName.toLowerCase()}[data-field-idx="${index}"]`;
   }
 }

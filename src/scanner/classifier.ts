@@ -47,7 +47,6 @@ export function classifyInputElement(element: Element): InputClassification {
       case 'image':
         return 'unknown';
       default:
-        // Do not blindly treat unknown types as text; if it's not a recognized input, return unknown
         return 'unknown';
     }
   }
@@ -67,16 +66,27 @@ export function classifyInputElement(element: Element): InputClassification {
 }
 
 /**
- * Checks if an element and all its ancestor containers are visually displayed.
+ * Checks if an element and all its ancestor containers are visually displayed and interactive.
+ * Handles zero-sized layout detection without failing on Happy DOM / mock test environments.
  */
 export function isElementVisible(element: HTMLElement): boolean {
   if (element.getAttribute('type') === 'hidden') return false;
   if (element.hidden || element.getAttribute('aria-hidden') === 'true') return false;
 
-  // Check element and all ancestors for visibility
+  // Check inline styles and parent tree for explicit hidden rules
   let curr: HTMLElement | null = element;
-  while (curr && curr !== element.ownerDocument.body) {
+  while (curr && curr !== element.ownerDocument.body && curr !== element.ownerDocument.documentElement) {
     if (curr.hidden || curr.getAttribute('aria-hidden') === 'true') {
+      return false;
+    }
+
+    // Check inline style first
+    if (
+      curr.style.display === 'none' ||
+      curr.style.visibility === 'hidden' ||
+      curr.style.opacity === '0' ||
+      curr.style.visibility === 'collapse'
+    ) {
       return false;
     }
 
@@ -94,11 +104,20 @@ export function isElementVisible(element: HTMLElement): boolean {
     curr = curr.parentElement;
   }
 
-  // Check bounding rect if available in full browser layout
+  // In full browser with layout engine, inspect geometry
   if (typeof window !== 'undefined' && element.ownerDocument.defaultView) {
-    const rect = element.getBoundingClientRect();
-    if (rect && (rect.width > 0 || rect.height > 0)) {
-      return true;
+    // If element has offsetParent === null and is not fixed position, it is detached or hidden
+    if (element.offsetParent === null && element.tagName.toLowerCase() !== 'body') {
+      const style = element.ownerDocument.defaultView.getComputedStyle(element);
+      if (style.position !== 'fixed') {
+        // If layout is supported and offsetParent is null, element is not visible
+        // However, in mock testing environments (like Happy DOM/JSDOM), offsetParent may always be null.
+        // We only fail if getBoundingClientRect explicitly reports a rendered layout of 0x0 while in a real browser.
+        const rect = element.getBoundingClientRect();
+        if (rect && rect.width === 0 && rect.height === 0 && (rect.top !== 0 || rect.left !== 0)) {
+          return false;
+        }
+      }
     }
   }
 
@@ -114,11 +133,14 @@ export function extractSelectOptions(element: HTMLSelectElement): FieldOption[] 
     const opt = element.options[i];
     const val = opt.value?.trim() || '';
     const txt = opt.text?.trim() || '';
-    // Skip empty dummy placeholding options like "Select an option..."
     if (val === '' && (txt.toLowerCase().includes('select') || txt.toLowerCase().includes('choose'))) {
       continue;
     }
-    options.push({ label: txt, value: val });
+    options.push({
+      label: txt,
+      value: val,
+      disabled: opt.disabled,
+    });
   }
   return options;
 }

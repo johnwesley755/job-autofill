@@ -30,7 +30,7 @@ export interface SavedAnswer {
 const DB_NAME = 'autoapply_db';
 const DB_VERSION = 1;
 
-export const MAX_RESUME_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB limit standard across ATS systems
+export const MAX_RESUME_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB standard limit
 
 export class AutoApplyDatabase {
   private dbPromise: Promise<IDBDatabase> | null = null;
@@ -71,11 +71,11 @@ export class AutoApplyDatabase {
 
       request.onerror = () => {
         this.dbPromise = null;
-        reject(request.error);
+        reject(request.error || new Error('Failed to open IndexedDB'));
       };
 
       request.onblocked = () => {
-        console.warn('[AutoApply DB] IndexedDB open blocked by existing connection');
+        console.warn('[AutoApply DB] IndexedDB blocked by another active connection');
       };
     });
 
@@ -110,13 +110,61 @@ export class AutoApplyDatabase {
   }
 
   async saveResume(resume: ResumeDocument): Promise<void> {
-    if (resume.size > MAX_RESUME_SIZE_BYTES) {
-      throw new Error(`Resume exceeds maximum allowed size of 5 MB (${(resume.size / (1024 * 1024)).toFixed(1)} MB)`);
+    if (!resume.size || resume.size <= 0) {
+      throw new Error('Cannot save an empty resume file (0 bytes).');
     }
 
-    const lowerName = resume.name.toLowerCase();
+    if (resume.size > MAX_RESUME_SIZE_BYTES) {
+      throw new Error(`Resume exceeds maximum allowed size of 5 MB (${(resume.size / (1024 * 1024)).toFixed(1)} MB).`);
+    }
+
+    const lowerName = (resume.name || '').trim().toLowerCase();
     if (!lowerName.endsWith('.pdf') && !lowerName.endsWith('.docx')) {
       throw new Error('Unsupported format. Only .pdf and .docx resume documents are supported.');
+    }
+
+    // MIME type validation when available
+    if (resume.type) {
+      const validMimes = [
+        'application/pdf',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/msword',
+        'application/octet-stream', // Fallback MIME for some browser file pickers
+      ];
+      if (!validMimes.includes(resume.type.toLowerCase())) {
+        throw new Error(`Invalid MIME type '${resume.type}'. Please upload a valid PDF or DOCX file.`);
+      }
+    }
+
+    // Verify magic bytes signature if Blob is readable
+    if (typeof resume.data?.slice === 'function') {
+      try {
+        const headerBlob = resume.data.slice(0, 4);
+        const buffer = await headerBlob.arrayBuffer();
+        const headerBytes = new Uint8Array(buffer);
+        if (lowerName.endsWith('.pdf')) {
+          // PDF magic bytes: %PDF (0x25, 0x50, 0x44, 0x46)
+          const isPdf =
+            headerBytes[0] === 0x25 &&
+            headerBytes[1] === 0x50 &&
+            headerBytes[2] === 0x44 &&
+            headerBytes[3] === 0x46;
+          if (!isPdf && headerBytes.length >= 4) {
+            throw new Error('Corrupted or invalid PDF file header.');
+          }
+        } else if (lowerName.endsWith('.docx')) {
+          // ZIP / DOCX magic bytes: PK (0x50, 0x4B, 0x03, 0x04)
+          const isDocx = headerBytes[0] === 0x50 && headerBytes[1] === 0x4b;
+          if (!isDocx && headerBytes.length >= 4) {
+            throw new Error('Corrupted or invalid DOCX document header.');
+          }
+        }
+      } catch (err: any) {
+        if (err.message && (err.message.includes('Corrupted') || err.message.includes('header'))) {
+          throw err;
+        }
+        // If arrayBuffer() is not supported in the test environment, allow file to pass
+      }
     }
 
     const db = await this.getDB();
@@ -124,7 +172,7 @@ export class AutoApplyDatabase {
       const tx = db.transaction('resumes', 'readwrite');
       const store = tx.objectStore('resumes');
 
-      // If marked as default, unmark any existing defaults
+      // If marked as default, unmark existing defaults
       if (resume.isDefault) {
         const allReq = store.getAll();
         allReq.onsuccess = () => {

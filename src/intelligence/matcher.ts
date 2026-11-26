@@ -31,12 +31,12 @@ export function matchFieldToProfile(field: DetectedField): MatchResult {
 
   let bestMatch: FieldDefinition | null = null;
   let highestScore = 0;
-  const competingMatches: Array<{ key: string; score: number }> = [];
+  const competingMatches: Array<{ key: string; score: number; def: FieldDefinition }> = [];
 
   for (const def of CANONICAL_FIELD_DICTIONARY) {
     let score = 0;
 
-    // Check negative keywords (immediate disqualification)
+    // Hard negative keywords check (immediate disqualification)
     const hasNegative = def.negativeKeywords.some(
       (neg) =>
         normalizedLabel.includes(neg) ||
@@ -69,7 +69,7 @@ export function matchFieldToProfile(field: DetectedField): MatchResult {
     if (def.labelKeywords.some((kw) => normalizedLabel === kw)) {
       score += 0.90;
     } else if (def.labelKeywords.some((kw) => normalizedLabel.includes(kw))) {
-      score += 0.65;
+      score += 0.75;
     }
 
     // 4. Placeholder match
@@ -77,7 +77,19 @@ export function matchFieldToProfile(field: DetectedField): MatchResult {
       score += 0.40;
     }
 
-    // 5. Input Type Compatibility check / bonus
+    // 5. Input Type Compatibility checks
+    // Reject incompatible types immediately (e.g., date cannot map to text names, number cannot map to email)
+    if (field.type === 'date' && !def.canonicalKey.includes('dob') && !def.canonicalKey.includes('Date') && !def.canonicalKey.includes('Year')) {
+      continue;
+    }
+    if (field.type === 'email' && def.canonicalKey !== 'personal.email') {
+      continue;
+    }
+    if (field.type === 'tel' && def.canonicalKey !== 'personal.phone') {
+      continue;
+    }
+
+    // Add compatibility bonus
     if (def.canonicalKey === 'personal.email' && field.type === 'email') {
       score += 0.20;
     } else if (def.canonicalKey === 'personal.phone' && field.type === 'tel') {
@@ -100,11 +112,11 @@ export function matchFieldToProfile(field: DetectedField): MatchResult {
       }
     }
 
-    // Cap max score to 1.0
     const finalScore = Math.min(score, 1.0);
 
-    if (finalScore >= 0.5) {
-      competingMatches.push({ key: def.canonicalKey, score: finalScore });
+    // Keep candidate matches that reached reasonable threshold
+    if (finalScore >= 0.35) {
+      competingMatches.push({ key: def.canonicalKey, score: finalScore, def });
     }
 
     if (finalScore > highestScore) {
@@ -113,22 +125,41 @@ export function matchFieldToProfile(field: DetectedField): MatchResult {
     }
   }
 
-  // Check for ambiguous competition between similar fields
+  // Detect contradictory or ambiguous competing matches
   if (competingMatches.length > 1) {
     competingMatches.sort((a, b) => b.score - a.score);
-    // If top 2 competing matches are within 0.15 margin, mark ambiguous and downgrade to medium
-    if (competingMatches[0].score - competingMatches[1].score <= 0.15) {
+    const topDiff = competingMatches[0].score - competingMatches[1].score;
+
+    // Hard conflict between mutually exclusive fields:
+    const topKey = competingMatches[0].key;
+    const secondKey = competingMatches[1].key;
+
+    // Both matched mutually exclusive categories with close scores
+    const isConflict =
+      (topDiff <= 0.20 &&
+        ((topKey.includes('currentCtc') && secondKey.includes('expectedCtc')) ||
+          (topKey.includes('expectedCtc') && secondKey.includes('currentCtc')) ||
+          (topKey.includes('cgpa') && secondKey.includes('percentage')) ||
+          (topKey.includes('percentage') && secondKey.includes('cgpa')) ||
+          (topKey.includes('internship') && secondKey.includes('company')) ||
+          (topKey.includes('company') && secondKey.includes('internship'))));
+
+    if (isConflict || topDiff <= 0.18) {
       return {
         canonicalKey: competingMatches[0].key,
         confidenceScore: competingMatches[0].score,
-        confidenceTier: 'medium',
+        confidenceTier: 'medium', // Require manual review
         isAmbiguous: true,
-        ambiguityReason: `Ambiguous between ${competingMatches[0].key} and ${competingMatches[1].key}`,
+        ambiguityReason: `Ambiguous / conflicting match between ${topKey} and ${secondKey}`,
       };
     }
   }
 
-  if (!bestMatch || highestScore < 0.5) {
+  // Strictly enforce confidence thresholds:
+  // >= 0.90 -> High (eligible for preselection)
+  // 0.70 - 0.89 -> Medium (requires manual review)
+  // < 0.70 -> Low (unmatched)
+  if (!bestMatch || highestScore < 0.70) {
     return {
       confidenceScore: highestScore,
       confidenceTier: 'low',
@@ -136,7 +167,7 @@ export function matchFieldToProfile(field: DetectedField): MatchResult {
     };
   }
 
-  const confidenceTier = highestScore >= 0.75 ? 'high' : 'medium';
+  const confidenceTier: 'high' | 'medium' = highestScore >= 0.90 ? 'high' : 'medium';
 
   return {
     canonicalKey: bestMatch.canonicalKey,

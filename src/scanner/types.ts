@@ -18,10 +18,13 @@ export type ConfidenceTier = 'high' | 'medium' | 'low';
 export interface FieldOption {
   label: string;
   value: string;
+  elementId?: string;
+  disabled?: boolean;
 }
 
 export interface DetectedField {
-  id: string;
+  id: string; // Globally unique session-specific field identifier
+  scanSessionId?: string;
   elementId?: string;
   name?: string;
   type: InputClassification;
@@ -31,10 +34,12 @@ export interface DetectedField {
   autocomplete?: string;
   isRequired: boolean;
   isDisabled: boolean;
+  isReadOnly?: boolean;
   isVisible: boolean;
   options?: FieldOption[];
   sectionContext?: string;
   selector: string;
+  currentValue?: string | boolean | string[];
   confidenceScore?: number;
   confidenceTier?: ConfidenceTier;
   mappedProfileKey?: string;
@@ -47,9 +52,11 @@ export interface DetectedField {
 }
 
 export interface FormScanSummary {
+  scanSessionId: string;
   url: string;
   domain: string;
   totalControls: number;
   fields: DetectedField[];
   scannedAt: string;
+  revision: number;
 }

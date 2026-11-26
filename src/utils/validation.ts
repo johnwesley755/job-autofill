@@ -125,12 +125,21 @@ function parseStrictBoolean(val: any, fallback = false): boolean {
 }
 
 /**
- * Parses a value strictly to an optional number.
+ * Parses a numerical value with range validation.
  */
-function parseOptionalNumber(val: any): number | undefined {
-  if (val === undefined || val === null || val === '') return undefined;
+function parseValidatedNumber(val: any, min?: number, max?: number, fieldName?: string): { value?: number; error?: string } {
+  if (val === undefined || val === null || val === '') return {};
   const num = Number(val);
-  return isNaN(num) ? undefined : num;
+  if (isNaN(num)) {
+    return { error: `${fieldName || 'Field'} must be a valid number` };
+  }
+  if (min !== undefined && num < min) {
+    return { error: `${fieldName || 'Field'} cannot be less than ${min}` };
+  }
+  if (max !== undefined && num > max) {
+    return { error: `${fieldName || 'Field'} cannot be greater than ${max}` };
+  }
+  return { value: num };
 }
 
 export function importProfileFromJson(jsonString: string): { success: boolean; profile?: CandidateProfile; error?: string } {
@@ -154,17 +163,37 @@ export function importProfileFromJson(jsonString: string): { success: boolean; p
         if (!item || typeof item !== 'object') {
           return { success: false, error: `Education record #${i + 1} is invalid` };
         }
+
+        // Validate scoreType strictly
+        if (item.scoreType && item.scoreType !== 'cgpa' && item.scoreType !== 'percentage') {
+          return { success: false, error: `Education record #${i + 1} has invalid scoreType: '${item.scoreType}'. Allowed: 'cgpa' or 'percentage'.` };
+        }
+
+        const scoreRes = parseValidatedNumber(
+          item.score,
+          0,
+          item.scoreType === 'percentage' ? 100 : (item.scale || 10),
+          `Education record #${i + 1} score`
+        );
+        if (scoreRes.error) return { success: false, error: scoreRes.error };
+
+        const gradYearRes = parseValidatedNumber(item.graduationYear, 1950, 2100, `Education record #${i + 1} graduation year`);
+        if (gradYearRes.error) return { success: false, error: gradYearRes.error };
+
+        const startYearRes = parseValidatedNumber(item.startYear, 1950, 2100, `Education record #${i + 1} start year`);
+        if (startYearRes.error) return { success: false, error: startYearRes.error };
+
         validatedEducation.push({
           id: String(item.id || `edu-${Date.now()}-${i}`),
           institution: String(item.institution || '').trim(),
           degree: String(item.degree || '').trim(),
           fieldOfStudy: String(item.fieldOfStudy || '').trim(),
-          graduationYear: parseOptionalNumber(item.graduationYear),
-          startYear: parseOptionalNumber(item.startYear),
+          graduationYear: gradYearRes.value,
+          startYear: startYearRes.value,
           scoreType: item.scoreType === 'percentage' ? 'percentage' : 'cgpa',
-          score: parseOptionalNumber(item.score),
-          scale: parseOptionalNumber(item.scale),
-          backlogsCount: parseOptionalNumber(item.backlogsCount),
+          score: scoreRes.value,
+          scale: parseValidatedNumber(item.scale).value,
+          backlogsCount: parseValidatedNumber(item.backlogsCount, 0).value,
         });
       }
     }
@@ -177,10 +206,15 @@ export function importProfileFromJson(jsonString: string): { success: boolean; p
         if (!item || typeof item !== 'object') {
           return { success: false, error: `Experience record #${i + 1} is invalid` };
         }
-        const expType = item.type === 'internship' ? 'internship' : item.type === 'contract' ? 'contract' : 'full-time';
+
+        // Validate employment type enum
+        if (item.type && !['full-time', 'internship', 'contract'].includes(item.type)) {
+          return { success: false, error: `Experience record #${i + 1} has invalid type: '${item.type}'. Allowed: 'full-time', 'internship', 'contract'.` };
+        }
+
         validatedExperience.push({
           id: String(item.id || `exp-${Date.now()}-${i}`),
-          type: expType,
+          type: item.type || 'full-time',
           company: String(item.company || '').trim(),
           jobTitle: String(item.jobTitle || '').trim(),
           location: item.location ? String(item.location).trim() : undefined,
@@ -191,6 +225,18 @@ export function importProfileFromJson(jsonString: string): { success: boolean; p
         });
       }
     }
+
+    const expYearsRes = parseValidatedNumber(parsed.preferences?.totalExperienceYears, 0, 70, 'Total experience years');
+    if (expYearsRes.error) return { success: false, error: expYearsRes.error };
+
+    const noticeDaysRes = parseValidatedNumber(parsed.preferences?.noticePeriodDays, 0, 365, 'Notice period days');
+    if (noticeDaysRes.error) return { success: false, error: noticeDaysRes.error };
+
+    const currentCtcRes = parseValidatedNumber(parsed.preferences?.currentCtcLpa, 0, 1000, 'Current CTC');
+    if (currentCtcRes.error) return { success: false, error: currentCtcRes.error };
+
+    const expectedCtcRes = parseValidatedNumber(parsed.preferences?.expectedCtcLpa, 0, 1000, 'Expected CTC');
+    if (expectedCtcRes.error) return { success: false, error: expectedCtcRes.error };
 
     const merged: CandidateProfile = {
       id: String(parsed.id || `profile-${Date.now()}`),
@@ -235,11 +281,11 @@ export function importProfileFromJson(jsonString: string): { success: boolean; p
       },
       preferences: {
         isFresher: parseStrictBoolean(parsed.preferences?.isFresher, false),
-        totalExperienceYears: parseOptionalNumber(parsed.preferences?.totalExperienceYears),
-        noticePeriodDays: parseOptionalNumber(parsed.preferences?.noticePeriodDays),
+        totalExperienceYears: expYearsRes.value,
+        noticePeriodDays: noticeDaysRes.value,
         immediateJoiner: parseStrictBoolean(parsed.preferences?.immediateJoiner, false),
-        currentCtcLpa: parseOptionalNumber(parsed.preferences?.currentCtcLpa),
-        expectedCtcLpa: parseOptionalNumber(parsed.preferences?.expectedCtcLpa),
+        currentCtcLpa: currentCtcRes.value,
+        expectedCtcLpa: expectedCtcRes.value,
         currency: String(parsed.preferences?.currency || 'INR'),
         preferredCities: Array.isArray(parsed.preferences?.preferredCities)
           ? parsed.preferences.preferredCities.map(String)

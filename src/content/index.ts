@@ -1,11 +1,12 @@
 /**
  * AutoApply Content Script
- * Modular Scanner with debounced MutationObserver.
+ * Modular Scanner and Autofill Engine coordinator.
  */
 
 import { UniversalFormScanner } from '../scanner/formScanner';
+import { executeFillInstructions, FillInstruction } from '../filling/fillCoordinator';
 
-console.log('[AutoApply] Universal Form Scanner content script initialized on:', window.location.href);
+console.log('[AutoApply] Universal Form Scanner and Autofill script loaded on:', window.location.href);
 
 const scanner = new UniversalFormScanner(document);
 
@@ -23,6 +24,16 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   if (request.type === 'SCAN_FORM_SUMMARY') {
     const summary = scanner.scan();
     sendResponse(summary);
+    return true;
+  }
+
+  if (request.type === 'EXECUTE_FILL') {
+    const { sessionId, instructions } = request as {
+      sessionId: string;
+      instructions: FillInstruction[];
+    };
+    const report = executeFillInstructions(sessionId, instructions || []);
+    sendResponse(report);
     return true;
   }
 
