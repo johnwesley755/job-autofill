@@ -149,6 +149,34 @@ describe('profileResolver', () => {
     expect(resolveProfileValue('links.portfolio', sampleProfile)).toBe('https://johnwesley.dev');
   });
 
+  it('rejects invalid or mismatched selected IDs and prevents fallback', () => {
+    // Non-existent education ID should return undefined, NOT fall back to highest degree
+    expect(
+      resolveProfileValue('education.institution', sampleProfile, { selectedEducationId: 'non-existent-id' })
+    ).toBeUndefined();
+
+    // Selecting an internship ID for a full-time company query must return undefined
+    expect(
+      resolveProfileValue('experience.company', sampleProfile, { selectedExperienceId: 'exp-intern' })
+    ).toBeUndefined();
+
+    // Selecting a full-time ID for an internship query must return undefined
+    expect(
+      resolveProfileValue('experience.internship', sampleProfile, { selectedExperienceId: 'exp-fulltime' })
+    ).toBeUndefined();
+  });
+
+  it('handles empty or missing records gracefully without inventing data', () => {
+    const emptyProfile: CandidateProfile = {
+      ...sampleProfile,
+      education: [],
+      experience: [],
+    };
+
+    expect(resolveProfileValue('education.institution', emptyProfile)).toBeUndefined();
+    expect(resolveProfileValue('experience.company', emptyProfile)).toBeUndefined();
+  });
+
   it('returns undefined for unconfigured or unknown keys', () => {
     expect(resolveProfileValue('unknown.field', sampleProfile)).toBeUndefined();
   });

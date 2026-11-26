@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Safety & Protection Form</title>
+</head>
+<body>
+  <form id="safety-form">
+    <!-- Existing filled value -->
+    <div>
+      <label for="existing_name">Full Name</label>
+      <input type="text" id="existing_name" name="full_name" value="Pre-filled Candidate Name" />
+    </div>
+
+    <!-- Hidden container -->
+    <div style="display: none;" id="hidden-section">
+      <label for="hidden_field">Hidden Secret Question</label>
+      <input type="text" id="hidden_field" name="hidden_input" />
+    </div>
+
+    <!-- Disabled control -->
+    <div>
+      <label for="disabled_field">Disabled Field</label>
+      <input type="text" id="disabled_field" name="disabled_input" disabled value="Locked" />
+    </div>
+
+    <!-- Read-only control -->
+    <div>
+      <label for="readonly_field">Read-only Field</label>
+      <input type="text" id="readonly_field" name="readonly_input" readonly value="Fixed Text" />
+    </div>
+
+    <!-- Password input (PROHIBITED) -->
+    <div>
+      <label for="user_pass">Account Password</label>
+      <input type="password" id="user_pass" name="password" />
+    </div>
+
+    <!-- Terms Declaration (PROHIBITED from auto-selection) -->
+    <div>
+      <label for="declaration_agree">
+        <input type="checkbox" id="declaration_agree" name="terms" />
+        I agree to the terms, conditions, and background verification declaration.
+      </label>
+    </div>
+
+    <!-- Submit button (PROHIBITED from auto-click) -->
+    <button type="submit" id="submit_application">Submit Application</button>
+  </form>
+</body>
+</html>

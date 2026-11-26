@@ -17,7 +17,7 @@
 ### Stage 2 & Stage 6 — Universal Form Detection Engine (Hardened)
 - **Modular Scanner Architecture**:
   - `src/scanner/types.ts`: Strongly-typed `DetectedField` and `FormScanSummary` interfaces with `automationId`, `testId`, `formId`, `groupName`, `isReadOnly`, and `scanSessionId`.
-  - `src/scanner/classifier.ts`: Classification of text, email, tel, number, date, select, custom-select (combobox), textarea, radio/checkbox groups, and file inputs. Explicitly excludes `password` inputs from candidate profiling. Checks ancestor occlusion and layout dimensions.
+  - `src/scanner/classifier.ts`: Classification of text, email, tel, number, date, select, custom-select (combobox), textarea, radio/checkbox groups, and file inputs. Explicitly excludes `password` inputs from candidate profiling. Checks ancestor occlusion, fixed-position elements, and layout bounding boxes.
   - `src/scanner/labelExtractor.ts`: Extraction of ARIA labelledby/label, `<label for>`, enclosing labels, field containers, placeholders, and section headers with dedicated required-asterisk detection.
   - `src/scanner/formScanner.ts`: `UniversalFormScanner` orchestrator with radio button and checkbox grouping by form/fieldset context, scan-session registration, and stable selector generation avoiding fragile `nth-of-type` indexing.
   - `src/scanner/elementRegistry.ts`: In-memory `ScanSessionElementRegistry` tracking exact DOM nodes per scan session in the content script, eliminating serialization and stale DOM reference failures.
@@ -38,46 +38,54 @@
   - Strict ambiguity detection for competing matches within close score margins or mutually exclusive categories.
   - Strict confidence tiers: High (`>= 0.90`), Medium (`0.70 - 0.89`), Low (`< 0.70`).
 
-### Stage 7 — Autofill Engine & User Review System
-- **Profile Resolver (`src/filling/profileResolver.ts`)**:
-  - Safely extracts candidate values matching canonical profile keys.
-  - Supports education/experience record selection with defaults to highest/current records.
-  - Strictly prevents cross-field leakage (CGPA vs percentage, current vs expected CTC, internship vs full-time).
-- **Field Value Mapper (`src/filling/fieldValueMapper.ts`)**:
-  - Generates proposed fill plans with safety checks.
-  - Detects existing non-empty values on page and flags them for explicit overwrite approval.
-  - Marks high-confidence, non-conflicting, empty fields as preselected; requires manual review for warned fields.
-- **Native Input Setters (`src/filling/nativeSetter.ts`, `selectHandler.ts`, `radioHandler.ts`, `checkboxHandler.ts`)**:
-  - Native prototype descriptor setters compatible with React 19 synthetic event pools (`Object.getOwnPropertyDescriptor(prototype, 'value')?.set`).
-  - Dispatches `input`, `change`, and `blur` events with `bubbles: true`.
-  - Verifies DOM value post-assignment.
-- **Fill Coordinator (`src/filling/fillCoordinator.ts`)**:
-  - Executes approved fills using session-registered DOM nodes.
-  - Emits structured `FillSessionReport` detailing successful, skipped, and failed fields.
-- **Side Panel Review Interface (`src/sidepanel/components/FillReviewTab.tsx` & `FormScannerTab.tsx`)**:
-  - Interactive Review & Fill subtab in the Side Panel.
-  - Shows proposed value vs existing value, confidence badge, and safety warnings.
-  - Per-field toggles, "Select All Eligible", and "Fill Approved Fields" actions.
-  - Detailed completion report showing summary stats and any skipped/failed items.
-- **Safety Policy Enforcement**:
-  - Zero automated submissions: Apply and Submit buttons are never clicked.
-  - Declarations and legal agreements are never accepted automatically.
-  - CAPTCHAs are never bypassed or solved.
+### Stage 7, Stage 8 & Stage 9 — Production-Safe Autofill & Chromium Browser Integration
+- **Strict Session Isolation (`src/scanner/elementRegistry.ts`)**:
+  - Immediate rejection of mismatched session IDs (`resolve` returns `undefined` for stale sessions).
+  - Cross-session resolution is completely blocked; stale session IDs cannot access new DOM elements.
+- **Advanced Overwrite & Change Protection (`src/filling/fieldValueMapper.ts` & `fillCoordinator.ts`)**:
+  - Separated states: existing page value, ambiguous profile mapping, conflicting field match, and missing candidate data.
+  - Default all fields to unchecked on scan.
+  - "Select Eligible" selects only high-confidence, non-conflicting, empty fields.
+  - Distinct explicit overwrite checkbox required before overwriting non-empty fields.
+  - Ambiguous matches can NEVER be filled, even if overwrite is toggled.
+  - Scan-time vs fill-time value comparison: if page content changes between scan and fill, the field is skipped with `skipped_value_changed` requiring a re-scan.
+- **Robust Control Handlers (`src/filling/`)**:
+  - `selectHandler.ts`: Exact option and clean-prefix matching only (no partial substring mismatches).
+  - `radioHandler.ts`: Explicit label (`label[for]`) association and boolean value handling.
+  - `checkboxHandler.ts`: Exact value matching and verification that all desired boxes are checked; prevents clearing existing selections without explicit overwrite approval.
+  - `nativeSetter.ts`: React 19 synthetic setter dispatch with value verification.
+- **Profile Resolver Hardening (`src/filling/profileResolver.ts`)**:
+  - Validates selected education/experience IDs; rejects fallback if an invalid ID is provided.
+  - Rejects using an internship record for a full-time company query.
+- **Side Panel UI Hardening (`src/sidepanel/components/FillReviewTab.tsx` & `FormScannerTab.tsx`)**:
+  - Uses native checkbox inputs with keyboard accessibility (`Enter`/`Space`).
+  - Authoritative session ID taken directly from `scanResult.scanSessionId`.
+  - Removed mock fill fallback: reports a clear error if Chrome extension tab APIs are unavailable.
+  - Shows distinct ambiguity warnings and separate overwrite toggles.
+- **Comprehensive Chromium Browser Integration Testing (Playwright)**:
+  - Synthetic form test fixtures in `tests/browser/fixtures/`:
+    - `basic-form.html` (text, email, tel, number, date, textarea)
+    - `select-form.html` (native selects, disabled options)
+    - `radio-form.html` (radio groups)
+    - `checkbox-form.html` (checkbox groups, single checkboxes)
+    - `react-form.html` (React fiber value tracking simulation)
+    - `dynamic-form.html` (multi-step dynamic replacement)
+    - `safety-form.html` (password, disabled, hidden, readonly, declaration, submit button)
+  - 8 real browser test specs across `scanner.browser.test.ts`, `autofill.browser.test.ts`, and `safety.browser.test.ts`.
+- **CI Workflow (`.github/workflows/ci.yml`)**:
+  - Added dedicated `browser-tests` job running on `ubuntu-latest`.
+  - Automated installation of Playwright Chromium and system dependencies (`npx playwright install --with-deps chromium`).
+  - Fails the build if either unit tests or Chromium browser integration tests fail.
 
 ---
 
 ## Current Status & Verification
 - `npm run check`: TypeScript clean check (0 errors).
-- `npm run test`: All 5 test suites passing (33/33 tests passed):
+- `npm run test`: All 5 Vitest suites passing (**35/35 tests passed**):
   - `tests/profileStore.test.ts` (4 tests)
   - `tests/validation.test.ts` (6 tests)
   - `tests/scanner.test.ts` (10 tests)
-  - `tests/profileResolver.test.ts` (5 tests)
+  - `tests/profileResolver.test.ts` (7 tests)
   - `tests/fillEngine.test.ts` (8 tests)
-- `npm run build`: Production bundle successfully built in `dist/` (Manifest V3 background worker, content script, popup, and sidepanel bundles).
-
----
-
-## Upcoming Stage: Resume Attachment & Platform Adapters (Stage 8)
-1. Technically supported file upload input detection (`type="file"`) with `DataTransfer` resume attachment where allowed.
-2. Custom dropdown adapters for Greenhouse, Lever, Workday, and Taleo comboboxes.
+- `npm run test:browser`: Playwright Chromium browser integration tests passing (**8/8 tests passed**).
+- `npm run build`: Production bundle built in `dist/` (Manifest V3 background worker, content script, popup, sidepanel).

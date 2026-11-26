@@ -41,11 +41,17 @@ class ScanSessionElementRegistry {
   }
 
   public resolve(fieldId: string, sessionId?: string): RegisteredElement | undefined {
-    if (sessionId && sessionId !== this.currentSessionId) {
-      console.warn(`[AutoApply Registry] Session mismatch. Expected: ${this.currentSessionId}, Requested: ${sessionId}`);
-      // Try resolving anyway if still present in memory
+    if (!sessionId || sessionId !== this.currentSessionId) {
+      console.warn(
+        `[AutoApply Registry] Session rejected. Current: "${this.currentSessionId}", Requested: "${sessionId || 'none'}"`
+      );
+      return undefined;
     }
-    return this.registry.get(fieldId);
+    const reg = this.registry.get(fieldId);
+    if (!reg || reg.scanSessionId !== sessionId) {
+      return undefined;
+    }
+    return reg;
   }
 
   public clear(): void {

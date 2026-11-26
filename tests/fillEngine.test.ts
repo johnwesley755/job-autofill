@@ -127,13 +127,13 @@ describe('Autofill Engine Modules', () => {
       expect(changeFired).toBe(true);
     });
 
-    it('unchecks checkbox when proposed value is false', () => {
+    it('unchecks checkbox when proposed value is false and overwrite is granted', () => {
       const checkbox = document.createElement('input');
       checkbox.type = 'checkbox';
       checkbox.checked = true;
       container.appendChild(checkbox);
 
-      const success = setCheckboxValue([checkbox], false);
+      const success = setCheckboxValue([checkbox], false, true);
       expect(success).toBe(true);
       expect(checkbox.checked).toBe(false);
     });

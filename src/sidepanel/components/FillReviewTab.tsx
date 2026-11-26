@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ProposedFieldFill } from '../../filling/fieldValueMapper';
 import { FillSessionReport } from '../../filling/fillCoordinator';
-import { Check, AlertTriangle, Play, RefreshCw, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { AlertTriangle, Play, RefreshCw, CheckCircle2, ShieldAlert } from 'lucide-react';
 
 interface FillReviewTabProps {
   proposedFills: ProposedFieldFill[];
@@ -29,7 +29,31 @@ export const FillReviewTab: React.FC<FillReviewTabProps> = ({
 
   const toggleApproval = (fieldId: string) => {
     setFills((prev) =>
-      prev.map((f) => (f.fieldId === fieldId ? { ...f, approved: !f.approved } : f))
+      prev.map((f) => {
+        if (f.fieldId !== fieldId) return f;
+        const newApproved = !f.approved;
+        return {
+          ...f,
+          approved: newApproved,
+          // If unapproved, also clear overwrite
+          isOverwrite: newApproved ? f.isOverwrite : false,
+        };
+      })
+    );
+  };
+
+  const toggleOverwrite = (fieldId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setFills((prev) =>
+      prev.map((f) => {
+        if (f.fieldId !== fieldId) return f;
+        const newOverwrite = !f.isOverwrite;
+        return {
+          ...f,
+          isOverwrite: newOverwrite,
+          approved: newOverwrite ? true : f.approved,
+        };
+      })
     );
   };
 
@@ -38,23 +62,27 @@ export const FillReviewTab: React.FC<FillReviewTabProps> = ({
       prev.map((f) => ({
         ...f,
         approved: f.isEligibleForPreselection,
+        isOverwrite: false,
       }))
     );
   };
 
   const deselectAll = () => {
-    setFills((prev) => prev.map((f) => ({ ...f, approved: false })));
+    setFills((prev) => prev.map((f) => ({ ...f, approved: false, isOverwrite: false })));
   };
 
   const executeFill = () => {
+    if (isFilling) return;
     setIsFilling(true);
     setErrorMessage(null);
 
     const instructions = fills.map((f) => ({
       fieldId: f.fieldId,
       proposedValue: f.proposedValue,
-      approved: f.approved,
-      overwriteExisting: f.hasConflictOrWarning && f.approved,
+      approved: f.approved && !f.isAmbiguous, // Ambiguous fields are strictly unfillable
+      overwriteExisting: Boolean(f.isOverwrite),
+      isAmbiguous: f.isAmbiguous,
+      scanTimeValue: f.scanTimeValue,
     }));
 
     if (typeof chrome !== 'undefined' && chrome.tabs && chrome.tabs.query) {
@@ -62,7 +90,7 @@ export const FillReviewTab: React.FC<FillReviewTabProps> = ({
         const tab = tabs[0];
         if (!tab?.id) {
           setIsFilling(false);
-          setErrorMessage('No active tab available.');
+          setErrorMessage('No active browser tab found to autofill.');
           return;
         }
 
@@ -76,7 +104,10 @@ export const FillReviewTab: React.FC<FillReviewTabProps> = ({
           (response: FillSessionReport) => {
             setIsFilling(false);
             if (chrome.runtime.lastError) {
-              setErrorMessage(chrome.runtime.lastError.message || 'Failed to dispatch fill command.');
+              setErrorMessage(
+                chrome.runtime.lastError.message ||
+                  'Failed to communicate with content script on active tab.'
+              );
               return;
             }
             if (response) {
@@ -87,25 +118,8 @@ export const FillReviewTab: React.FC<FillReviewTabProps> = ({
         );
       });
     } else {
-      // Mock execution in test/dev environment
-      setTimeout(() => {
-        setIsFilling(false);
-        const approvedCount = instructions.filter((i) => i.approved).length;
-        setFillReport({
-          sessionId,
-          timestamp: new Date().toISOString(),
-          totalRequested: instructions.length,
-          filledCount: approvedCount,
-          skippedCount: instructions.length - approvedCount,
-          failedCount: 0,
-          results: instructions.map((i) => ({
-            fieldId: i.fieldId,
-            status: i.approved ? 'filled' : 'needs_review',
-            verifiedValue: i.proposedValue,
-            message: i.approved ? 'Verified' : 'Skipped',
-          })),
-        });
-      }, 500);
+      setIsFilling(false);
+      setErrorMessage('Chrome Extension tab API is unavailable in this environment.');
     }
   };
 
@@ -185,8 +199,17 @@ export const FillReviewTab: React.FC<FillReviewTabProps> = ({
           fills.map((field) => (
             <div
               key={field.fieldId}
+              tabIndex={0}
+              role="button"
+              aria-label={`Toggle approval for ${field.label}`}
+              onKeyDown={(e) => {
+                if (e.key === ' ' || e.key === 'Enter') {
+                  e.preventDefault();
+                  toggleApproval(field.fieldId);
+                }
+              }}
               onClick={() => toggleApproval(field.fieldId)}
-              className={`p-3 rounded-xl border bg-white dark:bg-gray-800 text-xs transition cursor-pointer select-none ${
+              className={`p-3 rounded-xl border bg-white dark:bg-gray-800 text-xs transition cursor-pointer select-none focus:outline-hidden focus:ring-2 focus:ring-blue-500 ${
                 field.approved
                   ? 'border-emerald-400 dark:border-emerald-600 bg-emerald-50/20 shadow-xs'
                   : 'border-gray-200 dark:border-gray-700 hover:border-gray-300'
@@ -194,15 +217,14 @@ export const FillReviewTab: React.FC<FillReviewTabProps> = ({
             >
               <div className="flex items-start justify-between">
                 <div className="flex items-start space-x-2.5">
-                  <div
-                    className={`mt-0.5 w-4 h-4 rounded flex items-center justify-center border transition ${
-                      field.approved
-                        ? 'bg-emerald-600 border-emerald-600 text-white'
-                        : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900'
-                    }`}
-                  >
-                    {field.approved && <Check size={11} />}
-                  </div>
+                  <input
+                    type="checkbox"
+                    checked={field.approved}
+                    onChange={() => {}} // Controlled via parent click/toggleApproval
+                    disabled={field.isAmbiguous}
+                    className="mt-0.5 h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                    aria-label={`Approve fill for ${field.label}`}
+                  />
 
                   <div className="space-y-0.5">
                     <div className="font-semibold text-gray-800 dark:text-gray-100 flex items-center space-x-1.5">
@@ -214,26 +236,55 @@ export const FillReviewTab: React.FC<FillReviewTabProps> = ({
                       Value: &quot;{String(field.proposedValue)}&quot;
                     </div>
 
-                    {field.currentValue && (
-                      <div className="text-[10px] text-gray-400">
-                        Current DOM value: &quot;{String(field.currentValue)}&quot;
+                    {field.currentValue !== undefined && field.currentValue !== '' && (
+                      <div className="text-[10px] text-gray-500">
+                        Current Page Value: &quot;{String(field.currentValue)}&quot;
                       </div>
                     )}
                   </div>
                 </div>
 
-                <span
-                  className={`px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0 ${
-                    field.confidenceTier === 'high'
-                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                      : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                  }`}
-                >
-                  {(field.confidenceScore * 100).toFixed(0)}%
-                </span>
+                <div className="flex flex-col items-end space-y-1">
+                  <span
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0 ${
+                      field.confidenceTier === 'high'
+                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                        : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                    }`}
+                  >
+                    {(field.confidenceScore * 100).toFixed(0)}%
+                  </span>
+
+                  {/* Explicit Overwrite Checkbox if field has existing value */}
+                  {field.currentValue !== undefined &&
+                    field.currentValue !== '' &&
+                    !field.isAmbiguous && (
+                      <label
+                        onClick={(e) => toggleOverwrite(field.fieldId, e)}
+                        className="flex items-center space-x-1 text-[10px] text-amber-700 dark:text-amber-400 cursor-pointer hover:underline"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={field.isOverwrite}
+                          onChange={() => {}}
+                          className="h-3 w-3 rounded text-amber-600 border-gray-300"
+                        />
+                        <span>Overwrite</span>
+                      </label>
+                    )}
+                </div>
               </div>
 
-              {field.warningReason && (
+              {/* Distinct Ambiguity Warning */}
+              {field.isAmbiguous && (
+                <div className="mt-2 p-1.5 rounded bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 text-[10px] flex items-center space-x-1">
+                  <ShieldAlert size={12} className="shrink-0 text-red-500" />
+                  <span>Ambiguous Match: {field.warningReason} (Fill prohibited)</span>
+                </div>
+              )}
+
+              {/* Overwrite Warning */}
+              {!field.isAmbiguous && field.warningReason && (
                 <div className="mt-2 p-1.5 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 text-[10px] flex items-center space-x-1">
                   <AlertTriangle size={12} className="shrink-0" />
                   <span>{field.warningReason}</span>

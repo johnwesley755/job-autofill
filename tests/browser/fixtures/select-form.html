@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Select & Dropdown Form</title>
+</head>
+<body>
+  <form id="select-form">
+    <div>
+      <label for="gender">Gender</label>
+      <select id="gender" name="gender">
+        <option value="">-- Please Select --</option>
+        <option value="male">Male</option>
+        <option value="female">Female</option>
+        <option value="non-binary">Non-binary</option>
+        <option value="prefer-not-to-say">Prefer not to say</option>
+      </select>
+    </div>
+    <div>
+      <label for="work_mode">Preferred Work Mode</label>
+      <select id="work_mode" name="work_mode">
+        <option value="">Choose an option</option>
+        <option value="remote">Remote</option>
+        <option value="hybrid">Hybrid</option>
+        <option value="onsite">On-site</option>
+      </select>
+    </div>
+    <div>
+      <label for="country">Country</label>
+      <select id="country" name="country">
+        <option value="">Select country</option>
+        <option value="India">India</option>
+        <option value="United States">United States</option>
+        <option value="Canada">Canada</option>
+      </select>
+    </div>
+    <div>
+      <label for="disabled_select">Disabled Option</label>
+      <select id="disabled_select" disabled>
+        <option value="locked">Locked Value</option>
+      </select>
+    </div>
+  </form>
+</body>
+</html>

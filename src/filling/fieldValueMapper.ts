@@ -9,6 +9,7 @@ export interface ProposedFieldFill {
   canonicalKey: string;
   proposedValue: string | boolean | string[];
   currentValue?: string | boolean | string[];
+  scanTimeValue?: string | boolean | string[]; // Value recorded at scan time
   confidenceScore: number;
   confidenceTier: 'high' | 'medium' | 'low';
   requiresReview: boolean;
@@ -16,6 +17,8 @@ export interface ProposedFieldFill {
   reason: string;
   approved: boolean; // Must be explicitly approved by user
   hasConflictOrWarning: boolean;
+  isAmbiguous: boolean;
+  isOverwrite: boolean; // Distinct decision from normal fill
   warningReason?: string;
 }
 
@@ -61,23 +64,25 @@ export function createProposedFieldFills(
     }
 
     const score = field.confidenceScore || 0;
-    const isHighConfidence = score >= 0.90 && !field.isAmbiguous;
+    const isAmbiguous = Boolean(field.isAmbiguous);
+    const isHighConfidence = score >= 0.90 && !isAmbiguous;
     // Evaluated for confidence tier
     void (score >= 0.70 && score < 0.90);
 
     let warningReason: string | undefined;
     let hasConflictOrWarning = false;
 
-    if (field.isAmbiguous) {
+    if (isAmbiguous) {
       hasConflictOrWarning = true;
-      warningReason = field.ambiguityReason || 'Multiple competing profile keys detected';
+      warningReason = field.ambiguityReason || 'Multiple competing profile keys detected. Manual review required.';
     } else if (hasExistingValue) {
       hasConflictOrWarning = true;
-      warningReason = 'Field already contains text on the page. Overwrite requires approval.';
+      warningReason = 'Field already contains data. Explicit overwrite decision required.';
     }
 
     const requiresReview = !isHighConfidence || hasConflictOrWarning;
-    const isEligibleForPreselection = isHighConfidence && !hasExistingValue && !hasConflictOrWarning;
+    // Ambiguous fields or fields with existing values are NEVER eligible for preselection
+    const isEligibleForPreselection = isHighConfidence && !hasExistingValue && !isAmbiguous;
 
     proposedFills.push({
       fieldId: field.id,
@@ -86,13 +91,16 @@ export function createProposedFieldFills(
       canonicalKey: field.mappedProfileKey,
       proposedValue: value as any,
       currentValue: field.currentValue,
+      scanTimeValue: field.currentValue,
       confidenceScore: score,
       confidenceTier: field.confidenceTier || 'low',
       requiresReview,
       isEligibleForPreselection,
-      reason: `Matched ${field.mappedProfileKey} with ${(score * 100).toFixed(0)}% confidence`,
-      approved: isEligibleForPreselection, // Only high confidence without existing values pre-select
+      reason: `Mapped via canonical dictionary to ${field.mappedProfileKey} (Score: ${(score * 100).toFixed(0)}%)`,
+      approved: false, // Default all fields to unchecked for safety
       hasConflictOrWarning,
+      isAmbiguous,
+      isOverwrite: false,
       warningReason,
     });
   }

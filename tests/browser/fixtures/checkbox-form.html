@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Checkbox Group Form</title>
+</head>
+<body>
+  <form id="checkbox-form">
+    <fieldset id="preferred_cities_group">
+      <legend>Select Preferred Working Locations</legend>
+      <label>
+        <input type="checkbox" name="cities" value="Bengaluru" id="city_blr" />
+        Bengaluru
+      </label>
+      <label>
+        <input type="checkbox" name="cities" value="Hyderabad" id="city_hyd" />
+        Hyderabad
+      </label>
+      <label>
+        <input type="checkbox" name="cities" value="Pune" id="city_pune" />
+        Pune
+      </label>
+      <label>
+        <input type="checkbox" name="cities" value="Remote" id="city_remote" />
+        Remote
+      </label>
+    </fieldset>
+
+    <fieldset id="skills_group">
+      <legend>Core Technologies</legend>
+      <label>
+        <input type="checkbox" name="tech" value="React" id="tech_react" />
+        React
+      </label>
+      <label>
+        <input type="checkbox" name="tech" value="Node.js" id="tech_node" />
+        Node.js
+      </label>
+      <label>
+        <input type="checkbox" name="tech" value="Python" id="tech_python" />
+        Python
+      </label>
+    </fieldset>
+
+    <div>
+      <label for="relocate_single">
+        <input type="checkbox" id="relocate_single" name="willing_to_relocate" />
+        I am willing to relocate for this position
+      </label>
+    </div>
+  </form>
+</body>
+</html>

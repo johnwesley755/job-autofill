@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Dynamic Form Replacement</title>
+</head>
+<body>
+  <div id="step-container">
+    <div id="step-1">
+      <h2>Step 1: Preliminary Info</h2>
+      <button type="button" id="next-btn" onclick="goToStep2()">Next Step</button>
+    </div>
+  </div>
+
+  <script>
+    function goToStep2() {
+      const container = document.getElementById('step-container');
+      container.innerHTML = `
+        <div id="step-2">
+          <h2>Step 2: Candidate Details</h2>
+          <div>
+            <label for="dyn_first_name">Legal First Name *</label>
+            <input type="text" id="dyn_first_name" name="first_name" required />
+          </div>
+          <div>
+            <label for="dyn_email">Email Address *</label>
+            <input type="email" id="dyn_email" name="email" required />
+          </div>
+        </div>
+      `;
+    }
+  </script>
+</body>
+</html>

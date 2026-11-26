@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>React-controlled Controlled Input Form</title>
+</head>
+<body>
+  <div id="root">
+    <form id="react-controlled-form">
+      <div>
+        <label for="react_email">Applicant Email</label>
+        <input type="text" id="react_email" name="email" value="" />
+      </div>
+      <div>
+        <label for="react_company">Current Employer</label>
+        <input type="text" id="react_company" name="company" value="" />
+      </div>
+    </form>
+  </div>
+
+  <script>
+    // Simulate React's synthetic input value tracker & prototype interception
+    (function() {
+      const emailInput = document.getElementById('react_email');
+      const companyInput = document.getElementById('react_company');
+
+      function setupReactTracker(input) {
+        let internalState = input.value;
+        const originalSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+
+        // Simulate React fiber value tracker
+        input._valueTracker = {
+          getValue: function() { return internalState; },
+          setValue: function(val) { internalState = val; }
+        };
+
+        input.addEventListener('input', function(e) {
+          input.dataset.reactUpdated = 'true';
+          input.dataset.lastRecordedValue = e.target.value;
+        });
+      }
+
+      setupReactTracker(emailInput);
+      setupReactTracker(companyInput);
+    })();
+  </script>
+</body>
+</html>

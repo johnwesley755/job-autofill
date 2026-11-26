@@ -106,17 +106,22 @@ export function isElementVisible(element: HTMLElement): boolean {
 
   // In full browser with layout engine, inspect geometry
   if (typeof window !== 'undefined' && element.ownerDocument.defaultView) {
+    if (element.isConnected === false) return false;
+
     // If element has offsetParent === null and is not fixed position, it is detached or hidden
     if (element.offsetParent === null && element.tagName.toLowerCase() !== 'body') {
       const style = element.ownerDocument.defaultView.getComputedStyle(element);
       if (style.position !== 'fixed') {
-        // If layout is supported and offsetParent is null, element is not visible
-        // However, in mock testing environments (like Happy DOM/JSDOM), offsetParent may always be null.
-        // We only fail if getBoundingClientRect explicitly reports a rendered layout of 0x0 while in a real browser.
         const rect = element.getBoundingClientRect();
         if (rect && rect.width === 0 && rect.height === 0 && (rect.top !== 0 || rect.left !== 0)) {
           return false;
         }
+      }
+    } else if (typeof element.offsetParent === 'object' && element.offsetParent !== null) {
+      // In a real browser with layout engine, offsetParent is an HTMLElement. Check for zero-sized elements.
+      const rect = element.getBoundingClientRect();
+      if (rect && rect.width === 0 && rect.height === 0) {
+        return false;
       }
     }
   }

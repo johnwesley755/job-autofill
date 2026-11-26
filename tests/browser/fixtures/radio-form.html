@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Radio Group Form</title>
+</head>
+<body>
+  <form id="radio-form">
+    <fieldset>
+      <legend>Are you willing to relocate? *</legend>
+      <label>
+        <input type="radio" name="willing_to_relocate" value="yes" id="relocate_yes" required />
+        Yes, willing to relocate
+      </label>
+      <label>
+        <input type="radio" name="willing_to_relocate" value="no" id="relocate_no" required />
+        No, not at this time
+      </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Are you an immediate joiner?</legend>
+      <label>
+        <input type="radio" name="immediate_joiner" value="true" id="joiner_true" />
+        Yes, available immediately
+      </label>
+      <label>
+        <input type="radio" name="immediate_joiner" value="false" id="joiner_false" />
+        No, need notice period
+      </label>
+    </fieldset>
+  </form>
+</body>
+</html>

@@ -74,11 +74,17 @@ export class UniversalFormScanner {
         processedElements.add(radio);
       } else if (tagName === 'input' && type === 'checkbox') {
         // Group checkboxes only when they share a fieldset or multi-select container with a common legend/question
-        const fieldset = el.closest('fieldset, [data-checkbox-group], [role="group"]');
-        if (fieldset) {
-          const legend = fieldset.querySelector('legend, [class*="label"], [class*="question"]');
+        const container = el.closest('fieldset, [data-checkbox-group], [role="group"]');
+        if (container) {
+          const legend = container.querySelector('legend, [class*="label"], [class*="question"]');
           if (legend && legend.textContent) {
-            const groupKey = `fieldset:::${legend.textContent.trim()}:::${fieldset.id || index}`;
+            // Track by exact DOM container element identity using an internal data attribute or WeakMap
+            let containerId = container.getAttribute('data-autoapply-cbgroup');
+            if (!containerId) {
+              containerId = `cbgroup-${index}-${Math.random().toString(36).substring(2, 7)}`;
+              container.setAttribute('data-autoapply-cbgroup', containerId);
+            }
+            const groupKey = `container:::${containerId}`;
             if (!checkboxGroups.has(groupKey)) {
               checkboxGroups.set(groupKey, {
                 elements: [],

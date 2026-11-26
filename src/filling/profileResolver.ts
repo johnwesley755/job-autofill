@@ -141,7 +141,8 @@ function resolveSelectedEducation(records: EducationRecord[], selectedId?: strin
   if (!records || records.length === 0) return undefined;
   if (selectedId) {
     const found = records.find((r) => r.id === selectedId);
-    if (found) return found;
+    // Explicit selection MUST be valid; do not silently fall back to an arbitrary record
+    return found || undefined;
   }
   // Default to highest graduation year if not specified
   return records.slice().sort((a, b) => (b.graduationYear || 0) - (a.graduationYear || 0))[0];
@@ -155,7 +156,12 @@ function resolveSelectedExperience(
   if (!records || records.length === 0) return undefined;
   if (selectedId) {
     const found = records.find((r) => r.id === selectedId);
-    if (found) return found;
+    if (!found) return undefined;
+    // Strict record type validation: an internship cannot satisfy a full-time record query
+    if (preferredType && found.type !== preferredType) {
+      return undefined;
+    }
+    return found;
   }
   const filtered = preferredType ? records.filter((r) => r.type === preferredType) : records;
   if (filtered.length === 0) return undefined;

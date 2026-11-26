@@ -8,6 +8,8 @@ import { setCheckboxValue } from './checkboxHandler';
 export type FillFieldStatus =
   | 'filled'
   | 'skipped_existing_value'
+  | 'skipped_value_changed'
+  | 'skipped_ambiguous'
   | 'skipped_missing_value'
   | 'needs_review'
   | 'failed'
@@ -20,6 +22,8 @@ export interface FillInstruction {
   proposedValue: string | boolean | string[];
   approved: boolean;
   overwriteExisting?: boolean;
+  isAmbiguous?: boolean;
+  scanTimeValue?: string | boolean | string[];
 }
 
 export interface FieldFillResult {
@@ -109,11 +113,38 @@ export function executeFillInstructions(
       continue;
     }
 
-    // Safety: Check if current value changed since scan or contains non-empty content
+    // Ambiguous mappings must never be filled even if overwrite was toggled
+    if (instr.isAmbiguous) {
+      results.push({
+        fieldId: instr.fieldId,
+        status: 'skipped_ambiguous',
+        message: 'Field mapping is ambiguous; automatic fill prohibited.',
+      });
+      skippedCount++;
+      continue;
+    }
+
+    // Safety: Retrieve current live DOM value
     const currentVal =
       el instanceof HTMLInputElement && el.type === 'checkbox'
         ? el.checked
         : (el as HTMLInputElement).value || '';
+
+    // Check if the value changed between scan time and fill execution
+    if (
+      instr.scanTimeValue !== undefined &&
+      currentVal !== instr.scanTimeValue &&
+      currentVal !== instr.proposedValue
+    ) {
+      results.push({
+        fieldId: instr.fieldId,
+        status: 'skipped_value_changed',
+        verifiedValue: currentVal,
+        message: 'Field value changed on page after scanning. Re-scan required.',
+      });
+      skippedCount++;
+      continue;
+    }
 
     if (
       !instr.overwriteExisting &&
@@ -143,7 +174,11 @@ export function executeFillInstructions(
           const checked = reg.groupedElements.find((r) => (r as HTMLInputElement).checked);
           verifiedValue = checked ? (checked as HTMLInputElement).value : '';
         } else {
-          success = setCheckboxValue(reg.groupedElements as HTMLInputElement[], instr.proposedValue as any);
+          success = setCheckboxValue(
+            reg.groupedElements as HTMLInputElement[],
+            instr.proposedValue as any,
+            Boolean(instr.overwriteExisting)
+          );
           verifiedValue = reg.groupedElements
             .filter((c) => (c as HTMLInputElement).checked)
             .map((c) => (c as HTMLInputElement).value);
@@ -152,7 +187,11 @@ export function executeFillInstructions(
         success = setNativeSelectValue(el as HTMLSelectElement, String(instr.proposedValue));
         verifiedValue = (el as HTMLSelectElement).value;
       } else if (tagName === 'input' && inputType === 'checkbox') {
-        success = setCheckboxValue([el as HTMLInputElement], instr.proposedValue as any);
+        success = setCheckboxValue(
+          [el as HTMLInputElement],
+          instr.proposedValue as any,
+          Boolean(instr.overwriteExisting)
+        );
         verifiedValue = (el as HTMLInputElement).checked;
       } else if (tagName === 'input' || tagName === 'textarea') {
         success = setNativeInputValue(el as HTMLInputElement | HTMLTextAreaElement, instr.proposedValue as any);

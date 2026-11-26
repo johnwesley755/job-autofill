@@ -13,7 +13,13 @@ export function setRadioGroupValue(radios: HTMLInputElement[], targetValue: stri
     if (radio.disabled) continue;
 
     const val = radio.value.trim().toLowerCase();
-    const label = (radio.closest('label')?.textContent || '').trim().toLowerCase();
+    let label = (radio.closest('label')?.textContent || '').trim().toLowerCase();
+    if (!label && radio.id) {
+      const explicitLabel = radio.ownerDocument.querySelector(`label[for="${CSS.escape(radio.id)}"]`);
+      if (explicitLabel) {
+        label = (explicitLabel.textContent || '').trim().toLowerCase();
+      }
+    }
 
     if (val === targetStr || label === targetStr) {
       targetRadio = radio;

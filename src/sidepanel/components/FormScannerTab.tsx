@@ -17,6 +17,7 @@ export const FormScannerTab: React.FC = () => {
   const [scanResult, setScanResult] = useState<{
     url: string;
     domain: string;
+    scanSessionId: string;
     fields: DetectedField[];
   } | null>(null);
 
@@ -53,12 +54,14 @@ export const FormScannerTab: React.FC = () => {
             setScanResult({
               url: response.url || tab.url || '',
               domain: response.domain || new URL(tab.url || 'https://unknown').hostname,
+              scanSessionId: response.scanSessionId || `fallback-${Date.now()}`,
               fields: response.fields,
             });
           } else {
             setScanResult({
               url: tab.url || '',
               domain: new URL(tab.url || 'https://unknown').hostname,
+              scanSessionId: `empty-${Date.now()}`,
               fields: [],
             });
           }
@@ -70,6 +73,7 @@ export const FormScannerTab: React.FC = () => {
         setScanResult({
           url: 'http://localhost/demo-form',
           domain: 'localhost',
+          scanSessionId: `mock-session-${Date.now()}`,
           fields: [],
         });
       }, 300);
@@ -107,7 +111,7 @@ export const FormScannerTab: React.FC = () => {
   const highConfidenceCount = scanResult?.fields.filter((f) => f.confidenceTier === 'high').length || 0;
   const reviewCount = scanResult?.fields.filter((f) => f.confidenceTier === 'medium').length || 0;
   const unknownCount = scanResult?.fields.filter((f) => f.confidenceTier === 'low' || !f.confidenceTier).length || 0;
-  const sessionId = scanResult?.fields[0]?.scanSessionId || 'default-session';
+  const sessionId = scanResult?.scanSessionId || 'no-session';
 
   return (
     <div className="space-y-4">

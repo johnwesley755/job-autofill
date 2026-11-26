@@ -26,10 +26,21 @@ export function setNativeSelectValue(selectElement: HTMLSelectElement, targetVal
       matchedIndex = i;
       break;
     }
+  }
 
-    // Partial substring match if exact fails
-    if (matchedIndex === -1 && (optTxt.includes(normalizedTarget) || normalizedTarget.includes(optTxt))) {
-      matchedIndex = i;
+  // If no exact match found, only consider high-confidence clean prefix or bounded match
+  if (matchedIndex === -1) {
+    for (let i = 0; i < selectElement.options.length; i++) {
+      const opt = selectElement.options[i];
+      if (opt.disabled) continue;
+      const optVal = opt.value.trim().toLowerCase();
+      const optTxt = opt.text.trim().toLowerCase();
+      if (optVal === '' && (optTxt.includes('select') || optTxt.includes('choose'))) continue;
+
+      if (optTxt.startsWith(normalizedTarget) || normalizedTarget.startsWith(optTxt)) {
+        matchedIndex = i;
+        break;
+      }
     }
   }
 
