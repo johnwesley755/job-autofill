@@ -21,7 +21,15 @@
   },
   "content_scripts": [
     {
-      "matches": ["http://*/*", "https://*/*"],
+      "matches": [
+        "*://*.greenhouse.io/*",
+        "*://*.lever.co/*",
+        "*://*.myworkdayjobs.com/*",
+        "*://*.ashbyhq.com/*",
+        "*://*/*job*/*",
+        "*://*/*career*/*",
+        "*://*/*apply*/*"
+      ],
       "js": ["content.js"],
       "run_at": "document_idle"
     }

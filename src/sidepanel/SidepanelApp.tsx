@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useProfileStore } from '../store/profileStore';
+import { validateProfile, ProfileCompleteness } from '../utils/validation';
 import {
   User,
   GraduationCap,
@@ -11,7 +12,9 @@ import {
   Check,
   Sun,
   Moon,
-  Info
+  Info,
+  FileText,
+  Settings
 } from 'lucide-react';
 import { PersonalTab } from './components/PersonalTab';
 import { EducationTab } from './components/EducationTab';
@@ -19,18 +22,27 @@ import { ExperienceTab } from './components/ExperienceTab';
 import { SkillsAndLinksTab } from './components/SkillsAndLinksTab';
 import { PreferencesTab } from './components/PreferencesTab';
 import { FormScannerTab } from './components/FormScannerTab';
+import { ResumesTab } from './components/ResumesTab';
+import { SettingsTab } from './components/SettingsTab';
 
-type TabKey = 'personal' | 'education' | 'experience' | 'skills' | 'preferences' | 'assistant';
+type TabKey = 'personal' | 'education' | 'experience' | 'skills' | 'preferences' | 'resumes' | 'assistant' | 'settings';
 
 export const SidepanelApp: React.FC = () => {
-  const { loadProfile, save, isDirty, isLoading } = useProfileStore();
+  const { profile, loadProfile, save, isDirty, isLoading } = useProfileStore();
   const [activeTab, setActiveTab] = useState<TabKey>('personal');
   const [showSavedToast, setShowSavedToast] = useState(false);
   const [isDark, setIsDark] = useState(false);
+  const [completeness, setCompleteness] = useState<ProfileCompleteness | null>(null);
 
   useEffect(() => {
     loadProfile();
   }, [loadProfile]);
+
+  useEffect(() => {
+    if (profile) {
+      setCompleteness(validateProfile(profile));
+    }
+  }, [profile]);
 
   const handleSave = async () => {
     await save();
@@ -49,7 +61,9 @@ export const SidepanelApp: React.FC = () => {
     { key: 'experience', label: 'Experience', icon: <Briefcase size={15} /> },
     { key: 'skills', label: 'Skills & Links', icon: <Code2 size={15} /> },
     { key: 'preferences', label: 'Job Prefs', icon: <Sliders size={15} /> },
-    { key: 'assistant', label: 'Scan & Fill', icon: <Sparkles size={15} /> },
+    { key: 'resumes', label: 'Resumes', icon: <FileText size={15} /> },
+    { key: 'assistant', label: 'Scan Form', icon: <Sparkles size={15} /> },
+    { key: 'settings', label: 'Settings', icon: <Settings size={15} /> },
   ];
 
   if (isLoading) {
@@ -70,7 +84,7 @@ export const SidepanelApp: React.FC = () => {
           </div>
           <div>
             <h1 className="text-xs font-bold leading-none tracking-tight">AutoApply Assistant</h1>
-            <span className="text-[10px] text-gray-500 dark:text-gray-400">Candidate Profile & ATS Hub</span>
+            <span className="text-[10px] text-gray-500 dark:text-gray-400">Universal Form Scanner</span>
           </div>
         </div>
 
@@ -98,6 +112,30 @@ export const SidepanelApp: React.FC = () => {
         </div>
       </header>
 
+      {/* Completeness Bar */}
+      {completeness && (
+        <div className="bg-white dark:bg-gray-900 px-4 py-1.5 border-b border-gray-100 dark:border-gray-800/80 flex items-center justify-between text-[11px] shrink-0">
+          <div className="flex items-center space-x-2 flex-1 mr-3">
+            <span className="text-gray-500 dark:text-gray-400 whitespace-nowrap">Completeness:</span>
+            <div className="w-full bg-gray-200 dark:bg-gray-700 h-1.5 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-300 ${
+                  completeness.percentage >= 80
+                    ? 'bg-emerald-500'
+                    : completeness.percentage >= 50
+                    ? 'bg-blue-500'
+                    : 'bg-amber-500'
+                }`}
+                style={{ width: `${completeness.percentage}%` }}
+              />
+            </div>
+          </div>
+          <span className="font-semibold text-gray-700 dark:text-gray-300 font-mono">
+            {completeness.percentage}%
+          </span>
+        </div>
+      )}
+
       {/* Navigation Tabs */}
       <nav className="flex px-2 py-1.5 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 overflow-x-auto no-scrollbar space-x-1 shrink-0">
         {navItems.map((item) => (
@@ -123,7 +161,9 @@ export const SidepanelApp: React.FC = () => {
         {activeTab === 'experience' && <ExperienceTab />}
         {activeTab === 'skills' && <SkillsAndLinksTab />}
         {activeTab === 'preferences' && <PreferencesTab />}
+        {activeTab === 'resumes' && <ResumesTab />}
         {activeTab === 'assistant' && <FormScannerTab />}
+        {activeTab === 'settings' && <SettingsTab />}
       </main>
 
       {/* Bottom Status bar */}
@@ -132,7 +172,7 @@ export const SidepanelApp: React.FC = () => {
           <Info size={12} />
           <span>Local IndexedDB & Storage</span>
         </div>
-        <div className="font-mono text-[10px]">v1.0.0 (Phase 1)</div>
+        <div className="font-mono text-[10px]">v1.0.0</div>
       </footer>
     </div>
   );

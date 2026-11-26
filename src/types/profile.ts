@@ -1,5 +1,8 @@
 /**
  * Canonical Candidate Profile Types
+ *
+ * Strict Privacy Rule: All defaults are empty or unknown.
+ * Never fabricate or infer degrees, institutes, marks, salaries, or notice periods.
  */
 
 export interface PersonalInfo {
@@ -29,10 +32,10 @@ export interface EducationRecord {
   institution: string;
   degree: string;
   fieldOfStudy: string;
-  graduationYear: number;
+  graduationYear?: number;
   startYear?: number;
   scoreType: 'cgpa' | 'percentage';
-  score: number;
+  score?: number;
   scale?: number;
   backlogsCount?: number;
 }
@@ -43,7 +46,7 @@ export interface ExperienceRecord {
   company: string;
   jobTitle: string;
   location?: string;
-  startDate: string; // YYYY-MM
+  startDate?: string; // YYYY-MM
   endDate?: string; // YYYY-MM or undefined
   isCurrent: boolean;
   description?: string;
@@ -66,17 +69,17 @@ export interface LinksInfo {
 
 export interface JobPreferences {
   isFresher: boolean;
-  totalExperienceYears: number;
-  noticePeriodDays: number;
+  totalExperienceYears?: number;
+  noticePeriodDays?: number;
   immediateJoiner: boolean;
   currentCtcLpa?: number;
   expectedCtcLpa?: number;
   currency: string;
   preferredCities: string[];
   willingToRelocate: boolean;
-  workMode: 'remote' | 'hybrid' | 'onsite' | 'any';
+  workMode: 'remote' | 'hybrid' | 'onsite' | 'any' | '';
   workAuthorization: string;
-  requiresSponsorship: boolean;
+  requiresSponsorship?: boolean;
 }
 
 export interface CandidateProfile {
@@ -91,6 +94,9 @@ export interface CandidateProfile {
   preferences: JobPreferences;
 }
 
+/**
+ * True empty profile template without fabricated assumptions.
+ */
 export const defaultCandidateProfile: CandidateProfile = {
   id: 'default-profile',
   updatedAt: new Date().toISOString(),
@@ -101,38 +107,26 @@ export const defaultCandidateProfile: CandidateProfile = {
     fullName: '',
     email: '',
     phone: '',
-    phoneCountryCode: '+91',
+    phoneCountryCode: '+91', // Standard country dialing format prefix
     dob: '',
     gender: 'prefer-not-to-say',
-    nationality: 'Indian',
+    nationality: '',
   },
   location: {
     addressLine1: '',
     addressLine2: '',
-    city: 'Bengaluru',
-    state: 'Karnataka',
-    country: 'India',
+    city: '',
+    state: '',
+    country: '',
     postalCode: '',
   },
-  education: [
-    {
-      id: 'edu-1',
-      institution: '',
-      degree: 'B.Tech / B.E.',
-      fieldOfStudy: 'Computer Science and Engineering',
-      graduationYear: new Date().getFullYear(),
-      scoreType: 'cgpa',
-      score: 8.5,
-      scale: 10.0,
-      backlogsCount: 0,
-    },
-  ],
+  education: [],
   experience: [],
   skills: {
-    languages: ['JavaScript', 'TypeScript', 'Python'],
-    frameworks: ['React', 'Node.js', 'Express', 'Tailwind CSS'],
-    databases: ['PostgreSQL', 'MongoDB'],
-    tools: ['Git', 'Docker', 'VS Code'],
+    languages: [],
+    frameworks: [],
+    databases: [],
+    tools: [],
     certifications: [],
   },
   links: {
@@ -142,16 +136,11 @@ export const defaultCandidateProfile: CandidateProfile = {
   },
   preferences: {
     isFresher: false,
-    totalExperienceYears: 2,
-    noticePeriodDays: 30,
     immediateJoiner: false,
-    currentCtcLpa: 10,
-    expectedCtcLpa: 15,
     currency: 'INR',
-    preferredCities: ['Bengaluru', 'Hyderabad', 'Pune'],
-    willingToRelocate: true,
-    workMode: 'hybrid',
-    workAuthorization: 'Citizen',
-    requiresSponsorship: false,
+    preferredCities: [],
+    willingToRelocate: false,
+    workMode: '',
+    workAuthorization: '',
   },
 };
