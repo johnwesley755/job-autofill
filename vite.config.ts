@@ -14,8 +14,8 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        popup: resolve(__dirname, 'src/popup/index.html'),
-        sidepanel: resolve(__dirname, 'src/sidepanel/index.html'),
+        popup: resolve(__dirname, 'popup.html'),
+        sidepanel: resolve(__dirname, 'sidepanel.html'),
         background: resolve(__dirname, 'src/background/index.ts'),
         content: resolve(__dirname, 'src/content/index.ts'),
       },
@@ -37,6 +37,6 @@ export default defineConfig({
   test: {
     environment: 'happy-dom',
     globals: true,
-    exclude: ['**/node_modules/**', '**/dist/**', 'tests/browser/**'],
+    exclude: ['**/node_modules/**', '**/dist/**', 'tests/browser/**', 'tests/extension/**'],
   },
 });

@@ -84,14 +84,26 @@ export function setCheckboxValue(
     }
   }
 
-  // Verify final selection state: all enabled target boxes must now be checked
-  const allTargetsSatisfied = checkboxes.every((box) => {
-    if (box.disabled) return true;
-    const val = box.value.trim().toLowerCase();
-    const label = (box.closest('label')?.textContent || '').trim().toLowerCase();
-    const isTarget = targets.some((t) => val === t || label === t);
-    return isTarget ? box.checked : true;
+  // Verify that every requested target actually exists in the checkboxes and is satisfied
+  const allTargetsExistAndChecked = targets.every((t) => {
+    const matchingBox = checkboxes.find((box) => {
+      const val = box.value.trim().toLowerCase();
+      let label = (box.closest('label')?.textContent || '').trim().toLowerCase();
+      if (!label && box.id) {
+        const explicitLabel = box.ownerDocument.querySelector(`label[for="${CSS.escape(box.id)}"]`);
+        if (explicitLabel) {
+          label = (explicitLabel.textContent || '').trim().toLowerCase();
+        }
+      }
+      return val === t || label === t;
+    });
+
+    // If an option requested in profile doesn't exist on the form, fail verification
+    if (!matchingBox) return false;
+    // If the matching checkbox is disabled, it could not be checked unless already checked
+    if (matchingBox.disabled) return matchingBox.checked;
+    return matchingBox.checked;
   });
 
-  return allTargetsSatisfied;
+  return allTargetsExistAndChecked;
 }

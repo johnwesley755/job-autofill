@@ -38,7 +38,7 @@
   - Strict ambiguity detection for competing matches within close score margins or mutually exclusive categories.
   - Strict confidence tiers: High (`>= 0.90`), Medium (`0.70 - 0.89`), Low (`< 0.70`).
 
-### Stage 7, Stage 8 & Stage 9 — Production-Safe Autofill & Chromium Browser Integration
+### Stage 7, Stage 8 & Stage 9 — Production-Safe Autofill
 - **Strict Session Isolation (`src/scanner/elementRegistry.ts`)**:
   - Immediate rejection of mismatched session IDs (`resolve` returns `undefined` for stale sessions).
   - Cross-session resolution is completely blocked; stale session IDs cannot access new DOM elements.
@@ -48,44 +48,13 @@
   - "Select Eligible" selects only high-confidence, non-conflicting, empty fields.
   - Distinct explicit overwrite checkbox required before overwriting non-empty fields.
   - Ambiguous matches can NEVER be filled, even if overwrite is toggled.
-  - Scan-time vs fill-time value comparison: if page content changes between scan and fill, the field is skipped with `skipped_value_changed` requiring a re-scan.
-- **Robust Control Handlers (`src/filling/`)**:
-  - `selectHandler.ts`: Exact option and clean-prefix matching only (no partial substring mismatches).
-  - `radioHandler.ts`: Explicit label (`label[for]`) association and boolean value handling.
-  - `checkboxHandler.ts`: Exact value matching and verification that all desired boxes are checked; prevents clearing existing selections without explicit overwrite approval.
-  - `nativeSetter.ts`: React 19 synthetic setter dispatch with value verification.
-- **Profile Resolver Hardening (`src/filling/profileResolver.ts`)**:
-  - Validates selected education/experience IDs; rejects fallback if an invalid ID is provided.
-  - Rejects using an internship record for a full-time company query.
-- **Side Panel UI Hardening (`src/sidepanel/components/FillReviewTab.tsx` & `FormScannerTab.tsx`)**:
-  - Uses native checkbox inputs with keyboard accessibility (`Enter`/`Space`).
-  - Authoritative session ID taken directly from `scanResult.scanSessionId`.
-  - Removed mock fill fallback: reports a clear error if Chrome extension tab APIs are unavailable.
-  - Shows distinct ambiguity warnings and separate overwrite toggles.
-- **Comprehensive Chromium Browser Integration Testing (Playwright)**:
-  - Synthetic form test fixtures in `tests/browser/fixtures/`:
-    - `basic-form.html` (text, email, tel, number, date, textarea)
-    - `select-form.html` (native selects, disabled options)
-    - `radio-form.html` (radio groups)
-    - `checkbox-form.html` (checkbox groups, single checkboxes)
-    - `react-form.html` (React fiber value tracking simulation)
-    - `dynamic-form.html` (multi-step dynamic replacement)
-    - `safety-form.html` (password, disabled, hidden, readonly, declaration, submit button)
-  - 8 real browser test specs across `scanner.browser.test.ts`, `autofill.browser.test.ts`, and `safety.browser.test.ts`.
-- **CI Workflow (`.github/workflows/ci.yml`)**:
-  - Added dedicated `browser-tests` job running on `ubuntu-latest`.
-  - Automated installation of Playwright Chromium and system dependencies (`npx playwright install --with-deps chromium`).
-  - Fails the build if either unit tests or Chromium browser integration tests fail.
 
----
-
-## Current Status & Verification
-- `npm run check`: TypeScript clean check (0 errors).
-- `npm run test`: All 5 Vitest suites passing (**35/35 tests passed**):
-  - `tests/profileStore.test.ts` (4 tests)
-  - `tests/validation.test.ts` (6 tests)
-  - `tests/scanner.test.ts` (10 tests)
-  - `tests/profileResolver.test.ts` (7 tests)
-  - `tests/fillEngine.test.ts` (8 tests)
-- `npm run test:browser`: Playwright Chromium browser integration tests passing (**8/8 tests passed**).
-- `npm run build`: Production bundle built in `dist/` (Manifest V3 background worker, content script, popup, sidepanel).
+### Stage 10 — Packaging, Installation Fix and Production Verification
+- **Root Entry Points & Vite Build Alignments**:
+  - Created root `popup.html` and `sidepanel.html` referencing `./src/popup/index.tsx` and `./src/sidepanel/index.tsx`.
+  - Configured `public/manifest.json` pointing directly to `popup.html`, `sidepanel.html`, `background.js`, and `content.js`.
+  - Vite Rollup multi-page inputs configured so production build emits files directly to the root of `dist/`.
+- **Validation Script (`scripts/validate-extension.mjs`)**:
+  - Verifies Manifest V3 compliance, icons presence, absence of unresolved `src/` paths, and checks that `content.js` has no illegal static ES imports.
+- **Packaging Script (`scripts/package-extension.mjs`)**:
+  - Validates `dist/` and creates release archive `job-autofill-extension.zip` with `manifest.json` at root.

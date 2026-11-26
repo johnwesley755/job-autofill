@@ -9,11 +9,11 @@
     "128": "icons/icon-128.png"
   },
   "action": {
-    "default_popup": "src/popup/index.html",
+    "default_popup": "popup.html",
     "default_title": "AutoApply Assistant"
   },
   "side_panel": {
-    "default_path": "src/sidepanel/index.html"
+    "default_path": "sidepanel.html"
   },
   "background": {
     "service_worker": "background.js",

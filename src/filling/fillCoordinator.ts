@@ -124,18 +124,42 @@ export function executeFillInstructions(
       continue;
     }
 
-    // Safety: Retrieve current live DOM value
-    const currentVal =
-      el instanceof HTMLInputElement && el.type === 'checkbox'
-        ? el.checked
-        : (el as HTMLInputElement).value || '';
+    // Safety: Retrieve current live DOM value (handling array for checkbox groups)
+    let currentVal: string | boolean | string[] = '';
+    const tagName = el.tagName.toLowerCase();
+    const inputType = (el.getAttribute('type') || '').toLowerCase();
+
+    if (reg.groupedElements && reg.groupedElements.length > 0) {
+      if (inputType === 'radio') {
+        const checked = reg.groupedElements.find((r) => (r as HTMLInputElement).checked);
+        currentVal = checked ? (checked as HTMLInputElement).value : '';
+      } else {
+        currentVal = reg.groupedElements
+          .filter((c) => (c as HTMLInputElement).checked)
+          .map((c) => (c as HTMLInputElement).value)
+          .sort();
+      }
+    } else if (el instanceof HTMLInputElement && el.type === 'checkbox') {
+      currentVal = el.checked;
+    } else {
+      currentVal = (el as HTMLInputElement).value || '';
+    }
 
     // Check if the value changed between scan time and fill execution
-    if (
-      instr.scanTimeValue !== undefined &&
-      currentVal !== instr.scanTimeValue &&
-      currentVal !== instr.proposedValue
-    ) {
+    let valueChanged = false;
+    if (instr.scanTimeValue !== undefined) {
+      if (Array.isArray(instr.scanTimeValue)) {
+        const scanArr = instr.scanTimeValue.slice().sort();
+        const currArr = Array.isArray(currentVal) ? currentVal : [String(currentVal)];
+        if (JSON.stringify(scanArr) !== JSON.stringify(currArr)) {
+          valueChanged = true;
+        }
+      } else if (currentVal !== instr.scanTimeValue && currentVal !== instr.proposedValue) {
+        valueChanged = true;
+      }
+    }
+
+    if (valueChanged) {
       results.push({
         fieldId: instr.fieldId,
         status: 'skipped_value_changed',
@@ -146,24 +170,27 @@ export function executeFillInstructions(
       continue;
     }
 
-    if (
-      !instr.overwriteExisting &&
-      typeof currentVal === 'string' &&
-      currentVal.trim().length > 0 &&
-      currentVal !== String(instr.proposedValue)
-    ) {
+    // Existing non-empty value protection
+    let hasExisting = false;
+    if (Array.isArray(currentVal)) {
+      hasExisting = currentVal.length > 0;
+    } else if (typeof currentVal === 'string') {
+      hasExisting = currentVal.trim().length > 0 && currentVal !== String(instr.proposedValue);
+    } else if (typeof currentVal === 'boolean') {
+      hasExisting = currentVal === true && instr.proposedValue === false;
+    }
+
+    if (!instr.overwriteExisting && hasExisting) {
       results.push({
         fieldId: instr.fieldId,
         status: 'skipped_existing_value',
         verifiedValue: currentVal,
-        message: 'Field contains existing text and overwrite was not approved.',
+        message: 'Field contains existing selection/text and overwrite was not approved.',
       });
       skippedCount++;
       continue;
     }
 
-    const tagName = el.tagName.toLowerCase();
-    const inputType = (el.getAttribute('type') || '').toLowerCase();
     let success = false;
     let verifiedValue: string | boolean | string[] = '';
 
