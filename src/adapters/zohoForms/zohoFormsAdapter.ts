@@ -52,7 +52,11 @@ export class ZohoFormsAdapter implements FormAdapter {
           return { label: val, value: val };
         });
 
-        scanRegistry.register(fieldId, radioInputs[0], checkedVal, radioInputs);
+        scanRegistry.register(fieldId, radioInputs[0], checkedVal, radioInputs, {
+          fieldType: 'radio-group',
+          platformId: this.platformId,
+          options,
+        });
 
         const field: DetectedField = {
           id: fieldId,
@@ -95,7 +99,11 @@ export class ZohoFormsAdapter implements FormAdapter {
           return { label: val, value: val };
         });
 
-        scanRegistry.register(fieldId, checkboxInputs[0], checkedValues, checkboxInputs);
+        scanRegistry.register(fieldId, checkboxInputs[0], checkedValues, checkboxInputs, {
+          fieldType: 'checkbox-group',
+          platformId: this.platformId,
+          options,
+        });
 
         const field: DetectedField = {
           id: fieldId,

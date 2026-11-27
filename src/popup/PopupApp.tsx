@@ -133,9 +133,21 @@ export const PopupApp: React.FC = () => {
       canonicalKey: f.canonicalKey,
       proposedValue: f.proposedValue,
       scanTimeValue: f.currentValue,
+      approved: true, // Explicitly approve eligible fields for filling
       overwriteExisting: false,
       isAmbiguous: false,
+      scanSessionId,
     }));
+
+    const targetContext = {
+      tabId: activeTabId,
+      url: window.location.href,
+      domain: activeTabDomain,
+      platformId: 'generic',
+      scanSessionId,
+      revision: 1,
+      timestamp: new Date().toISOString(),
+    };
 
     chrome.tabs.sendMessage(
       activeTabId,
@@ -143,6 +155,7 @@ export const PopupApp: React.FC = () => {
         type: 'FILL_APPROVED_FIELDS',
         sessionId: scanSessionId,
         instructions,
+        targetContext,
       },
       (res) => {
         setIsFilling(false);

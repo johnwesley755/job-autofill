@@ -169,7 +169,11 @@ export class UniversalFormScanner {
       field.isAmbiguous = match.isAmbiguous;
       field.ambiguityReason = match.ambiguityReason;
 
-      scanRegistry.register(fieldId, firstRadio, checkedValue, group.elements);
+      scanRegistry.register(fieldId, firstRadio, checkedValue, group.elements, {
+        fieldType: 'radio-group',
+        frameId,
+        options,
+      });
       mergedFields.push(field);
       radioIndex++;
     });
@@ -218,7 +222,11 @@ export class UniversalFormScanner {
       field.isAmbiguous = match.isAmbiguous;
       field.ambiguityReason = match.ambiguityReason;
 
-      scanRegistry.register(fieldId, firstBox, checkedValues, group.elements);
+      scanRegistry.register(fieldId, firstBox, checkedValues, group.elements, {
+        fieldType: 'checkbox-group',
+        frameId,
+        options,
+      });
       mergedFields.push(field);
       checkboxIndex++;
     });
@@ -307,7 +315,11 @@ export class UniversalFormScanner {
       field.isAmbiguous = match.isAmbiguous;
       field.ambiguityReason = match.ambiguityReason;
 
-      scanRegistry.register(fieldId, htmlEl, currentValue);
+      scanRegistry.register(fieldId, htmlEl, currentValue, undefined, {
+        fieldType: type,
+        frameId,
+        options: field.options,
+      });
       mergedFields.push(field);
     });
 

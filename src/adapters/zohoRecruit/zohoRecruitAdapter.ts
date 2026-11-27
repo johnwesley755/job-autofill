@@ -77,7 +77,10 @@ export class ZohoRecruitAdapter implements FormAdapter {
         const inputType = (input.getAttribute('type') || '').toLowerCase();
         const type = tagName === 'textarea' ? 'textarea' : inputType === 'email' ? 'email' : inputType === 'tel' ? 'tel' : 'text';
 
-        scanRegistry.register(fieldId, input, input.value || '');
+        scanRegistry.register(fieldId, input, input.value || '', undefined, {
+          fieldType: type,
+          platformId: this.platformId,
+        });
 
         const field: DetectedField = {
           id: fieldId,

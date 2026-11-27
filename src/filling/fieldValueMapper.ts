@@ -21,6 +21,7 @@ export interface ProposedFieldFill {
   ambiguityReason?: string;
   isOverwrite: boolean; // Distinct decision from normal fill
   frameId?: number;
+  scanSessionId?: string;
   warningReason?: string;
 }
 
@@ -99,11 +100,12 @@ export function createProposedFieldFills(
       requiresReview,
       isEligibleForPreselection,
       reason: `Mapped via canonical dictionary to ${field.mappedProfileKey} (Score: ${(score * 100).toFixed(0)}%)`,
-      approved: false, // Default all fields to unchecked for safety
+      approved: isEligibleForPreselection, // Pre-select high-confidence, non-ambiguous fields with no existing values
       hasConflictOrWarning,
       isAmbiguous,
       isOverwrite: false,
       frameId: field.frameId,
+      scanSessionId: field.scanSessionId,
       warningReason,
     });
   }

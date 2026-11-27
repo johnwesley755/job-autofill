@@ -71,7 +71,10 @@ export class KekaAdapter implements FormAdapter {
       const customSelect = group.querySelector('[role="combobox"], .ng-select, .select2-container') as HTMLElement | null;
       if (customSelect && !scanRegistry.hasElement(customSelect)) {
         const fieldId = `keka_cselect_${idx}`;
-        scanRegistry.register(fieldId, customSelect, customSelect.textContent?.trim() || '');
+        scanRegistry.register(fieldId, customSelect, customSelect.textContent?.trim() || '', undefined, {
+          fieldType: 'custom-select',
+          platformId: this.platformId,
+        });
 
         const field: DetectedField = {
           id: fieldId,

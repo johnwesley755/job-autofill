@@ -21,15 +21,53 @@ export interface ValidatedFillInstruction {
 export interface PersistentScanTargetContext {
   tabId: number;
   url: string;
+  frameUrl?: string;
+  isIframe?: boolean;
   pathname?: string;
   origin?: string;
   title?: string;
   domain: string;
   platformId: string;
   scanSessionId: string;
+  frameSessions?: Record<number, string>;
   revision: number;
   timestamp: string;
   frameId?: number;
+}
+
+export interface FrameScanContext {
+  frameId: number;
+  scanSessionId: string;
+  url: string;
+  platformId: string;
+  fieldCount: number;
+}
+
+export interface MasterScanContext {
+  tabId: number;
+  url: string;
+  domain: string;
+  platformId: string;
+  scannedAt: string;
+  frames: FrameScanContext[];
+}
+
+export interface ScanDiagnostics {
+  scannedFrames: number;
+  totalControlsFound: number;
+  detectedFieldsCount: number;
+  inaccessibleFramesCount: number;
+  platformIdentified: string;
+  durationMs?: number;
+}
+
+export interface FillDiagnostics {
+  totalRequested: number;
+  filledCount: number;
+  skippedCount: number;
+  failedCount: number;
+  breakdownByStatus: Record<string, number>;
+  unverifiedFieldIds: string[];
 }
 
 export interface DiscoveredFrameInfo {

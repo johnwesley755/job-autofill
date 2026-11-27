@@ -44,3 +44,6 @@ test-results/
 .stylelintcache
 *.tsbuildinfo
 .vite/
+.extension-speed-apply/
+extension-speed-apply/
+

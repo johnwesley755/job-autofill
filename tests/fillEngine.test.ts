@@ -5,6 +5,9 @@ import { setRadioGroupValue } from '../src/filling/radioHandler';
 import { setCheckboxValue } from '../src/filling/checkboxHandler';
 import { scanRegistry } from '../src/scanner/elementRegistry';
 import { executeFillInstructions } from '../src/filling/fillCoordinator';
+import { createProposedFieldFills } from '../src/filling/fieldValueMapper';
+import { defaultCandidateProfile } from '../src/types/profile';
+import { DetectedField } from '../src/scanner/types';
 
 describe('Autofill Engine Modules', () => {
   let container: HTMLDivElement;
@@ -236,6 +239,75 @@ describe('Autofill Engine Modules', () => {
       expect(report.filledCount).toBe(0);
       expect(report.failedCount).toBe(1);
       expect(report.results[0].status).toBe('rejected_by_site');
+    });
+
+    it('pre-approves eligible high-confidence fields while leaving existing or ambiguous fields unapproved', () => {
+      const sampleProfile = {
+        ...defaultCandidateProfile,
+        personal: {
+          ...defaultCandidateProfile.personal,
+          firstName: 'John',
+          email: 'john@example.com',
+        },
+      };
+
+      const fields: DetectedField[] = [
+        {
+          id: 'field_1',
+          type: 'text',
+          label: 'First Name',
+          isRequired: true,
+          isDisabled: false,
+          isVisible: true,
+          selector: '#first_name',
+          currentValue: '',
+          confidenceTier: 'high',
+          confidenceScore: 0.95,
+          mappedProfileKey: 'personal.firstName',
+        },
+        {
+          id: 'field_2',
+          type: 'text',
+          label: 'Email',
+          isRequired: true,
+          isDisabled: false,
+          isVisible: true,
+          selector: '#email',
+          currentValue: 'already_typed@example.com',
+          confidenceTier: 'high',
+          confidenceScore: 0.95,
+          mappedProfileKey: 'personal.email',
+        },
+        {
+          id: 'field_3',
+          type: 'text',
+          label: 'Ambiguous Field',
+          isRequired: false,
+          isDisabled: false,
+          isVisible: true,
+          selector: '#ambig',
+          currentValue: '',
+          confidenceTier: 'medium',
+          confidenceScore: 0.7,
+          mappedProfileKey: 'personal.firstName',
+          isAmbiguous: true,
+        },
+      ];
+
+      const fills = createProposedFieldFills(fields, sampleProfile);
+      expect(fills).toHaveLength(3);
+
+      // field_1 is high-confidence, empty, non-ambiguous -> eligible and pre-approved
+      expect(fills[0].isEligibleForPreselection).toBe(true);
+      expect(fills[0].approved).toBe(true);
+
+      // field_2 has existing value -> NOT pre-approved
+      expect(fills[1].isEligibleForPreselection).toBe(false);
+      expect(fills[1].approved).toBe(false);
+
+      // field_3 is ambiguous -> NOT pre-approved
+      expect(fills[2].isEligibleForPreselection).toBe(false);
+      expect(fills[2].approved).toBe(false);
     });
   });
 });

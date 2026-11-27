@@ -40,7 +40,10 @@ export class MicrosoftFormsAdapter implements FormAdapter {
       const textControl = item.querySelector('input[type="text"], textarea') as HTMLInputElement | HTMLTextAreaElement | null;
       if (textControl && !scanRegistry.hasElement(textControl)) {
         const fieldId = `msf_text_${idx}`;
-        scanRegistry.register(fieldId, textControl, textControl.value || '');
+        scanRegistry.register(fieldId, textControl, textControl.value || '', undefined, {
+          fieldType: textControl.tagName.toLowerCase() === 'textarea' ? 'textarea' : 'text',
+          platformId: this.platformId,
+        });
 
         const field: DetectedField = {
           id: fieldId,
@@ -87,7 +90,11 @@ export class MicrosoftFormsAdapter implements FormAdapter {
           };
         });
 
-        scanRegistry.register(fieldId, radioInputs[0], checkedVal, radioInputs);
+        scanRegistry.register(fieldId, radioInputs[0], checkedVal, radioInputs, {
+          fieldType: 'radio-group',
+          platformId: this.platformId,
+          options,
+        });
 
         const field: DetectedField = {
           id: fieldId,

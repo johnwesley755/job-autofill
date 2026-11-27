@@ -65,27 +65,49 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
 
     // Phase 2: Validate Target Context Locking
     if (targetContext) {
-      if (targetContext.scanSessionId && targetContext.scanSessionId !== sessionId) {
+      // In multi-frame scenarios, each frame registry maintains its own sessionId,
+      // which can be passed either directly as req.sessionId, via targetContext.scanSessionId,
+      // or mapped in targetContext.frameSessions[req.frameId].
+      const expectedSessionId =
+        (req.frameId !== undefined && targetContext.frameSessions?.[req.frameId]) ||
+        targetContext.scanSessionId;
+
+      if (expectedSessionId && expectedSessionId !== sessionId) {
         sendResponse({
           success: false,
-          error: `Mismatched scan session ID in target lock. Expected: ${targetContext.scanSessionId}, Got: ${sessionId}`,
+          error: `Mismatched scan session ID in target lock. Expected: ${expectedSessionId}, Got: ${sessionId}`,
         });
         return true;
       }
 
-      // Check URL consistency
+      // Check URL consistency.
+      // If running inside an iframe, check against frameUrl if provided, or allow cross-origin iframe embedding
       try {
         const currentOrigin = new URL(window.location.href).origin;
-        const targetOrigin = new URL(targetContext.url).origin;
-        if (currentOrigin !== targetOrigin) {
-          sendResponse({
-            success: false,
-            error: `Target URL origin mismatch. Current: ${currentOrigin}, Target: ${targetOrigin}`,
-          });
-          return true;
+        if (isIframe) {
+          if (targetContext.frameUrl) {
+            const targetFrameOrigin = new URL(targetContext.frameUrl).origin;
+            if (currentOrigin !== targetFrameOrigin) {
+              sendResponse({
+                success: false,
+                error: `Frame URL origin mismatch. Current: ${currentOrigin}, Target Frame: ${targetFrameOrigin}`,
+              });
+              return true;
+            }
+          }
+          // If frameUrl is not set, cross-origin iframes (e.g. embedded forms) are permitted.
+        } else {
+          const targetOrigin = new URL(targetContext.url).origin;
+          if (currentOrigin !== targetOrigin) {
+            sendResponse({
+              success: false,
+              error: `Target URL origin mismatch. Current: ${currentOrigin}, Target: ${targetOrigin}`,
+            });
+            return true;
+          }
         }
       } catch {
-        // Ignore parsing errors for relative URLs
+        // Ignore parsing errors for relative or about:blank URLs
       }
     }
 

@@ -52,7 +52,10 @@ export class GoogleFormsAdapter implements FormAdapter {
       if (textInput && !scanRegistry.hasElement(textInput)) {
         const fieldId = `gf_text_${idx}`;
         const inputType = (textInput.type as any) || 'text';
-        scanRegistry.register(fieldId, textInput, textInput.value || '');
+        scanRegistry.register(fieldId, textInput, textInput.value || '', undefined, {
+          fieldType: inputType === 'date' ? 'date' : inputType === 'number' ? 'number' : inputType === 'email' ? 'email' : inputType === 'tel' ? 'tel' : 'text',
+          platformId: this.platformId,
+        });
 
         const field: DetectedField = {
           id: fieldId,
@@ -84,7 +87,10 @@ export class GoogleFormsAdapter implements FormAdapter {
       const textarea = container.querySelector('textarea') as HTMLTextAreaElement | null;
       if (textarea && !scanRegistry.hasElement(textarea)) {
         const fieldId = `gf_textarea_${idx}`;
-        scanRegistry.register(fieldId, textarea, textarea.value || '');
+        scanRegistry.register(fieldId, textarea, textarea.value || '', undefined, {
+          fieldType: 'textarea',
+          platformId: this.platformId,
+        });
 
         const field: DetectedField = {
           id: fieldId,
@@ -135,7 +141,11 @@ export class GoogleFormsAdapter implements FormAdapter {
           };
         });
 
-        scanRegistry.register(fieldId, radioElements[0], checkedVal, radioElements);
+        scanRegistry.register(fieldId, radioElements[0], checkedVal, radioElements, {
+          fieldType: 'radio-group',
+          platformId: this.platformId,
+          options,
+        });
 
         const field: DetectedField = {
           id: fieldId,
@@ -186,7 +196,11 @@ export class GoogleFormsAdapter implements FormAdapter {
           };
         });
 
-        scanRegistry.register(fieldId, checkboxElements[0], checkedValues, checkboxElements);
+        scanRegistry.register(fieldId, checkboxElements[0], checkedValues, checkboxElements, {
+          fieldType: 'checkbox-group',
+          platformId: this.platformId,
+          options,
+        });
 
         const field: DetectedField = {
           id: fieldId,
@@ -220,7 +234,10 @@ export class GoogleFormsAdapter implements FormAdapter {
       ) as HTMLElement | null;
       if (dropdown && !scanRegistry.hasElement(dropdown)) {
         const fieldId = `gf_dropdown_${idx}`;
-        scanRegistry.register(fieldId, dropdown, dropdown.textContent?.trim() || '');
+        scanRegistry.register(fieldId, dropdown, dropdown.textContent?.trim() || '', undefined, {
+          fieldType: 'custom-select',
+          platformId: this.platformId,
+        });
 
         const field: DetectedField = {
           id: fieldId,
@@ -272,8 +289,11 @@ export class GoogleFormsAdapter implements FormAdapter {
       });
 
       if (match) {
-        match.click();
-        match.setAttribute('aria-checked', 'true');
+        // Trigger realistic click sequence on clickable target
+        const clickTarget = match.querySelector('div, span, label') as HTMLElement || match;
+        clickTarget.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+        clickTarget.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+        clickTarget.click();
         match.dispatchEvent(new Event('input', { bubbles: true }));
         match.dispatchEvent(new Event('change', { bubbles: true }));
         return true;
@@ -294,8 +314,12 @@ export class GoogleFormsAdapter implements FormAdapter {
         const isCurrentChecked = cb.getAttribute('aria-checked') === 'true' || (cb as HTMLInputElement).checked;
         const shouldBeChecked = targetVals.includes(val.toLowerCase().trim());
         if (isCurrentChecked !== shouldBeChecked) {
-          cb.click();
-          cb.setAttribute('aria-checked', shouldBeChecked ? 'true' : 'false');
+          const clickTarget = cb.querySelector('div, span, label') as HTMLElement || cb;
+          clickTarget.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+          clickTarget.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+          clickTarget.click();
+          cb.dispatchEvent(new Event('input', { bubbles: true }));
+          cb.dispatchEvent(new Event('change', { bubbles: true }));
           anyClicked = true;
         }
       }
@@ -304,9 +328,10 @@ export class GoogleFormsAdapter implements FormAdapter {
 
     // Google forms custom dropdowns scoped specifically to this question container
     if (field.type === 'custom-select' && element) {
+      element.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
       element.click();
-      await new Promise((r) => setTimeout(r, 60));
-      // Look for options inside container or active popup menu
+      await new Promise((r) => setTimeout(r, 80));
+      // Look for options inside container, listbox popup, or active document menu
       const questionContainer = element.closest('[role="listitem"]') || element.parentElement;
       const scopedOptions = Array.from(
         (questionContainer?.querySelectorAll('[role="option"]') || document.querySelectorAll('[role="option"]'))
@@ -315,8 +340,9 @@ export class GoogleFormsAdapter implements FormAdapter {
       const targetStr = String(value).toLowerCase().trim();
       const matchOption = scopedOptions.find((opt) => opt.textContent?.toLowerCase().trim() === targetStr);
       if (matchOption) {
+        matchOption.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
         matchOption.click();
-        element.setAttribute('data-value', String(value));
+        matchOption.dispatchEvent(new Event('change', { bubbles: true }));
         return true;
       }
       return false;

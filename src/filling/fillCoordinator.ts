@@ -4,6 +4,7 @@ import { setNativeInputValue } from './nativeSetter';
 import { setNativeSelectValue } from './selectHandler';
 import { setRadioGroupValue } from './radioHandler';
 import { setCheckboxValue } from './checkboxHandler';
+import { setCustomComboboxValue } from './customComboboxHandler';
 import { adapterRegistry } from '../adapters/adapterRegistry';
 import { DetectedField } from '../scanner/types';
 
@@ -274,18 +275,21 @@ export async function executeFillInstructions(
         const syntheticField: DetectedField = {
           id: instr.fieldId,
           type:
-            reg.groupedElements && reg.groupedElements.length > 0
+            (reg.fieldType as any) ||
+            (reg.groupedElements && reg.groupedElements.length > 0
               ? inputType === 'radio' || role === 'radio'
                 ? 'radio-group'
                 : 'checkbox-group'
               : role === 'combobox' || role === 'listbox'
               ? 'custom-select'
-              : (inputType as any) || 'text',
+              : (inputType as any) || 'text'),
           label: '',
           isRequired: false,
           isDisabled: false,
           isVisible: true,
+          options: reg.options,
           selector: '',
+          platformId: reg.platformId,
         };
 
         adapterHandled = await adapter.fillControl(
@@ -310,6 +314,22 @@ export async function executeFillInstructions(
           }
         } else if (tagName === 'select') {
           setNativeSelectValue(el as HTMLSelectElement, String(instr.proposedValue));
+        } else if (
+          role === 'combobox' ||
+          role === 'listbox' ||
+          reg.fieldType === 'custom-select' ||
+          el.getAttribute('aria-haspopup') === 'listbox'
+        ) {
+          const comboHandled = await setCustomComboboxValue(el, instr.proposedValue as any);
+          if (!comboHandled) {
+            results.push({
+              fieldId: instr.fieldId,
+              status: 'rejected_by_site',
+              message: `Could not select value "${String(instr.proposedValue)}" in custom combobox.`,
+            });
+            failedCount++;
+            continue;
+          }
         } else if (tagName === 'input' && inputType === 'checkbox') {
           setCheckboxValue(
             [el as HTMLInputElement],

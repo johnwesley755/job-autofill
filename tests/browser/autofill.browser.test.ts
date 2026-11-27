@@ -143,4 +143,25 @@ test.describe('Autofill Engine in Real Chromium Browser', () => {
     await page.locator('#dyn_first_name').fill('Jane');
     await expect(page.locator('#dyn_first_name')).toHaveValue('Jane');
   });
+
+  test('fills Google Forms questions and custom controls reliably', async ({ page }) => {
+    const fixturePath = path.resolve(__dirname, '..', 'fixtures', 'google-forms.html');
+    await page.goto(`file://${fixturePath}`);
+
+    // Verify fields can be filled and clicks dispatched to custom controls
+    const nameInput = page.locator('input[name="entry.1001"]');
+    await nameInput.focus();
+    await nameInput.fill('John Wesley');
+    await expect(nameInput).toHaveValue('John Wesley');
+
+    // Click Google Forms custom radio option
+    const radioOption = page.locator('[role="radio"][data-value="Yes"]');
+    await radioOption.click();
+    await expect(page.locator('[role="radio"][data-value="Yes"]')).toBeVisible();
+
+    // Fill Google Forms paragraph
+    const textarea = page.locator('textarea[name="entry.1004"]');
+    await textarea.fill('Passionate engineer with extensive frontend experience.');
+    await expect(textarea).toHaveValue('Passionate engineer with extensive frontend experience.');
+  });
 });

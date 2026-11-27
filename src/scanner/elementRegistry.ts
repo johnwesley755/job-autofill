@@ -4,12 +4,18 @@
  * Uses WeakMap for fast, identity-based DOM element tracking.
  */
 
+import { FieldOption, InputClassification } from './types';
+
 export interface RegisteredElement {
   fieldId: string;
   scanSessionId: string;
   element: HTMLElement;
   groupedElements?: HTMLElement[]; // For radio-group or checkbox-group
   originalValue: string | boolean | string[];
+  fieldType?: InputClassification | string;
+  platformId?: string;
+  frameId?: number;
+  options?: FieldOption[];
 }
 
 class ScanSessionElementRegistry {
@@ -32,7 +38,13 @@ class ScanSessionElementRegistry {
     fieldId: string,
     element: HTMLElement,
     originalValue: string | boolean | string[] = '',
-    groupedElements?: HTMLElement[]
+    groupedElements?: HTMLElement[],
+    metadata?: {
+      fieldType?: InputClassification | string;
+      platformId?: string;
+      frameId?: number;
+      options?: FieldOption[];
+    }
   ): void {
     this.registry.set(fieldId, {
       fieldId,
@@ -40,6 +52,10 @@ class ScanSessionElementRegistry {
       element,
       groupedElements,
       originalValue,
+      fieldType: metadata?.fieldType,
+      platformId: metadata?.platformId,
+      frameId: metadata?.frameId,
+      options: metadata?.options,
     });
     this.elementToFieldId.set(element, fieldId);
     if (groupedElements && Array.isArray(groupedElements)) {

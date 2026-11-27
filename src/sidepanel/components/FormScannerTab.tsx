@@ -113,6 +113,7 @@ export const FormScannerTab: React.FC = () => {
         let completedFrames = 0;
         let masterSessionId = '';
         let primaryPlatformId = 'generic';
+        const frameSessions: Record<number, string> = {};
 
         // Scan each frame specifically
         frameIds.forEach((fId) => {
@@ -126,11 +127,15 @@ export const FormScannerTab: React.FC = () => {
                 if (!masterSessionId && response.scanSessionId) {
                   masterSessionId = response.scanSessionId;
                 }
+                if (response.scanSessionId) {
+                  frameSessions[fId] = response.scanSessionId;
+                }
                 if (response.platformId && response.platformId !== 'generic') {
                   primaryPlatformId = response.platformId;
                 }
                 for (const field of response.fields) {
                   field.frameId = fId;
+                  field.scanSessionId = response.scanSessionId;
                   // Deduplicate fields that might appear identical across frames
                   const isDuplicate = aggregatedFields.some(
                     (af) => af.id === field.id && af.label === field.label
@@ -165,6 +170,7 @@ export const FormScannerTab: React.FC = () => {
                   domain: tabRes.domain || 'job page',
                   platformId: primaryPlatformId,
                   scanSessionId: sessionId,
+                  frameSessions,
                   revision: 1,
                   timestamp: new Date().toISOString(),
                   frameId: 0,

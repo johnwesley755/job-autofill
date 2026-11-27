@@ -145,6 +145,11 @@ export const FillReviewTab: React.FC<FillReviewTabProps> = ({
         const totalFramesToDispatch = instructionsByFrame.size;
 
         instructionsByFrame.forEach((frameFills, fId) => {
+          const frameSessionId =
+            (targetContext.frameSessions && targetContext.frameSessions[fId]) ||
+            frameFills[0]?.scanSessionId ||
+            sessionId;
+
           const frameInstructions = frameFills.map((f) => ({
             fieldId: f.fieldId,
             canonicalKey: f.canonicalKey,
@@ -153,7 +158,7 @@ export const FillReviewTab: React.FC<FillReviewTabProps> = ({
             approved: true, // Strictly validated
             overwriteExisting: Boolean(f.isOverwrite),
             isAmbiguous: Boolean(f.isAmbiguous),
-            scanSessionId: sessionId,
+            scanSessionId: frameSessionId,
             frameId: fId,
           }));
 
@@ -161,9 +166,13 @@ export const FillReviewTab: React.FC<FillReviewTabProps> = ({
             targetContext.tabId,
             {
               type: 'FILL_APPROVED_FIELDS',
-              sessionId,
+              sessionId: frameSessionId,
               instructions: frameInstructions,
-              targetContext: { ...targetContext, frameId: fId },
+              targetContext: {
+                ...targetContext,
+                frameId: fId,
+                scanSessionId: frameSessionId,
+              },
               frameId: fId,
             },
             { frameId: fId },
@@ -248,7 +257,13 @@ export const FillReviewTab: React.FC<FillReviewTabProps> = ({
               className="inline-flex items-center gap-1.5 px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg font-semibold text-xs transition disabled:opacity-50 shadow-xs"
             >
               <Play size={13} className={isFilling ? 'animate-spin' : ''} />
-              <span>{isFilling ? 'Filling...' : 'Fill Approved Fields'}</span>
+              <span>
+                {isFilling
+                  ? 'Filling...'
+                  : approvedCount > 0
+                  ? `Fill ${approvedCount} Approved Field${approvedCount === 1 ? '' : 's'}`
+                  : 'Fill Approved Fields'}
+              </span>
             </button>
           </div>
         </div>
