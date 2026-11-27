@@ -190,11 +190,12 @@ export const FormScannerTab: React.FC = () => {
     });
   };
 
-  const highConfidenceCount = proposedFills.filter((f) => f.confidenceTier === 'high').length;
-  const reviewCount = proposedFills.filter(
-    (f) => f.confidenceTier === 'medium' || f.isAmbiguous || f.hasConflictOrWarning
+  const readyCount = proposedFills.filter((f) => f.readinessState === 'ready').length;
+  const missingValueCount = proposedFills.filter((f) => f.readinessState === 'missing_profile_value').length;
+  const unmappedCount = proposedFills.filter((f) => f.readinessState === 'needs_manual_mapping').length;
+  const protectedCount = proposedFills.filter(
+    (f) => f.readinessState === 'existing_value_protected' || f.readinessState === 'ambiguous_mapping'
   ).length;
-  const unknownCount = proposedFills.filter((f) => f.confidenceTier === 'low').length;
 
   const sessionId = scanResult?.scanSessionId || '';
 
@@ -329,18 +330,22 @@ export const FormScannerTab: React.FC = () => {
                   <span className="text-[11px] text-text-muted">Session: {scanResult.scanSessionId}</span>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2 pt-2">
+                <div className="grid grid-cols-4 gap-2 pt-2">
                   <div className="p-2.5 bg-surface rounded-lg border border-border-subtle">
-                    <span className="text-text-muted block text-[10px] font-semibold uppercase">High Confidence</span>
-                    <span className="text-sm font-bold text-success">{highConfidenceCount}</span>
+                    <span className="text-text-muted block text-[10px] font-semibold uppercase">Ready to Fill</span>
+                    <span className="text-sm font-bold text-success">{readyCount}</span>
                   </div>
                   <div className="p-2.5 bg-surface rounded-lg border border-border-subtle">
-                    <span className="text-text-muted block text-[10px] font-semibold uppercase">Needs Review</span>
-                    <span className="text-sm font-bold text-accent">{reviewCount}</span>
+                    <span className="text-text-muted block text-[10px] font-semibold uppercase">Missing Profile</span>
+                    <span className="text-sm font-bold text-accent">{missingValueCount}</span>
                   </div>
                   <div className="p-2.5 bg-surface rounded-lg border border-border-subtle">
-                    <span className="text-text-muted block text-[10px] font-semibold uppercase">Unmatched</span>
-                    <span className="text-sm font-bold text-text-muted">{unknownCount}</span>
+                    <span className="text-text-muted block text-[10px] font-semibold uppercase">Needs Mapping</span>
+                    <span className="text-sm font-bold text-text-muted">{unmappedCount}</span>
+                  </div>
+                  <div className="p-2.5 bg-surface rounded-lg border border-border-subtle">
+                    <span className="text-text-muted block text-[10px] font-semibold uppercase">Protected / Review</span>
+                    <span className="text-sm font-bold text-warning">{protectedCount}</span>
                   </div>
                 </div>
 

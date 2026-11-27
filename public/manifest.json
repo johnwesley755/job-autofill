@@ -66,6 +66,9 @@
     "*://recruit.zoho.in/*",
     "*://*.zohorecruit.com/*",
     "*://app.keka.com/*",
-    "*://*.keka.com/*"
+    "*://*.keka.com/*",
+    "*://*/*job*/*",
+    "*://*/*career*/*",
+    "*://*/*apply*/*"
   ]
 }

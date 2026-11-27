@@ -1,8 +1,9 @@
-import { FormAdapter } from '../types';
+import { FormAdapter, ControlHandlerResult } from '../types';
 import { DetectedField } from '../../scanner/types';
 import { scanRegistry } from '../../scanner/elementRegistry';
 import { matchFieldToProfile } from '../../intelligence/matcher';
 import { isElementVisible } from '../../scanner/classifier';
+import { setAriaRadioValue, setAriaCheckboxValue } from '../../filling/ariaControlHandlers';
 
 export class GoogleFormsAdapter implements FormAdapter {
   platformId = 'google_forms';
@@ -275,79 +276,132 @@ export class GoogleFormsAdapter implements FormAdapter {
     value: string | boolean | string[],
     element: HTMLElement,
     groupedElements?: HTMLElement[]
-  ): Promise<boolean> {
+  ): Promise<ControlHandlerResult> {
     if (field.type === 'radio-group' && groupedElements && groupedElements.length > 0) {
-      const targetStr = String(value).toLowerCase().trim();
-      const match = groupedElements.find((r) => {
-        const val =
-          r.getAttribute('data-value') ||
-          r.getAttribute('aria-label') ||
-          r.closest('label')?.textContent?.trim() ||
-          r.textContent?.trim() ||
-          '';
-        return val.toLowerCase().trim() === targetStr;
-      });
-
-      if (match) {
-        // Trigger realistic click sequence on clickable target
-        const clickTarget = match.querySelector('div, span, label') as HTMLElement || match;
-        clickTarget.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-        clickTarget.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
-        clickTarget.click();
-        match.dispatchEvent(new Event('input', { bubbles: true }));
-        match.dispatchEvent(new Event('change', { bubbles: true }));
-        return true;
+      const res = setAriaRadioValue(groupedElements, value as any);
+      if (res.success) {
+        return {
+          status: 'handled',
+          verified: true,
+          actualValue: res.verifiedValue,
+        };
       }
-      return false;
+      return {
+        status: 'failed',
+        reason: `Could not find or select radio option matching "${String(value)}" in Google Forms`,
+        interactionStarted: false,
+      };
     }
 
     if (field.type === 'checkbox-group' && groupedElements && groupedElements.length > 0) {
-      const targetVals = Array.isArray(value) ? value.map((v) => String(v).toLowerCase().trim()) : [String(value).toLowerCase().trim()];
-      let anyClicked = false;
-      for (const cb of groupedElements) {
-        const val =
-          cb.getAttribute('data-value') ||
-          cb.getAttribute('aria-label') ||
-          cb.closest('label')?.textContent?.trim() ||
-          cb.textContent?.trim() ||
-          '';
-        const isCurrentChecked = cb.getAttribute('aria-checked') === 'true' || (cb as HTMLInputElement).checked;
-        const shouldBeChecked = targetVals.includes(val.toLowerCase().trim());
-        if (isCurrentChecked !== shouldBeChecked) {
-          const clickTarget = cb.querySelector('div, span, label') as HTMLElement || cb;
-          clickTarget.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-          clickTarget.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
-          clickTarget.click();
-          cb.dispatchEvent(new Event('input', { bubbles: true }));
-          cb.dispatchEvent(new Event('change', { bubbles: true }));
-          anyClicked = true;
-        }
+      const res = setAriaCheckboxValue(groupedElements, value as any, false);
+      if (res.success) {
+        return {
+          status: 'handled',
+          verified: true,
+          actualValue: res.verifiedValues,
+        };
       }
-      return anyClicked;
+      return {
+        status: 'failed',
+        reason: `Could not find or select checkbox option matching "${String(value)}" in Google Forms`,
+        interactionStarted: false,
+      };
     }
 
-    // Google forms custom dropdowns scoped specifically to this question container
+    // Google forms custom dropdowns (ARIA listbox / combobox)
     if (field.type === 'custom-select' && element) {
-      element.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-      element.click();
-      await new Promise((r) => setTimeout(r, 80));
-      // Look for options inside container, listbox popup, or active document menu
-      const questionContainer = element.closest('[role="listitem"]') || element.parentElement;
-      const scopedOptions = Array.from(
-        (questionContainer?.querySelectorAll('[role="option"]') || document.querySelectorAll('[role="option"]'))
-      ) as HTMLElement[];
+      // Step 1: Identify the exact dropdown trigger
+      const trigger =
+        element.getAttribute('role') === 'listbox' || element.getAttribute('role') === 'combobox'
+          ? element
+          : (element.querySelector('[role="listbox"], [role="combobox"], [aria-haspopup="listbox"]') as HTMLElement) || element;
 
-      const targetStr = String(value).toLowerCase().trim();
-      const matchOption = scopedOptions.find((opt) => opt.textContent?.toLowerCase().trim() === targetStr);
-      if (matchOption) {
-        matchOption.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-        matchOption.click();
-        matchOption.dispatchEvent(new Event('change', { bubbles: true }));
-        return true;
+      const isAriaDisabled = trigger.getAttribute('aria-disabled') === 'true' || trigger.hasAttribute('disabled');
+      if (isAriaDisabled) {
+        return {
+          status: 'failed',
+          reason: 'Google Forms dropdown is disabled',
+          interactionStarted: false,
+        };
       }
-      return false;
+
+      // Step 2: Open dropdown if not already open
+      const isAlreadyExpanded = trigger.getAttribute('aria-expanded') === 'true';
+      if (!isAlreadyExpanded) {
+        trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+        trigger.click();
+      }
+
+      // Step 3: Wait for menu options to be present in DOM (bounded wait up to 400ms)
+      const popupId = trigger.getAttribute('aria-controls') || trigger.getAttribute('aria-owns');
+      const questionContainer = element.closest('[role="listitem"]') || element.parentElement;
+
+      let matchedOption: HTMLElement | undefined;
+      const targetStr = String(value).toLowerCase().trim();
+
+      const startTime = Date.now();
+      while (Date.now() - startTime < 450) {
+        // Collect candidate options from question container, controlled popup, or active document menu
+        let candidateOptions: HTMLElement[] = [];
+        if (questionContainer) {
+          const qOpts = Array.from(questionContainer.querySelectorAll('[role="option"]')) as HTMLElement[];
+          if (qOpts.length > 0) candidateOptions.push(...qOpts);
+        }
+        if (popupId) {
+          const controlled = document.getElementById(popupId);
+          if (controlled) {
+            const cOpts = Array.from(controlled.querySelectorAll('[role="option"]')) as HTMLElement[];
+            if (cOpts.length > 0) candidateOptions.push(...cOpts);
+          }
+        }
+        // Fallback: active popup menu in document
+        const docOpts = Array.from(document.querySelectorAll('[role="listbox"] [role="option"], .exportSelectPopup [role="option"], [jsname][role="option"]')) as HTMLElement[];
+        if (docOpts.length > 0) candidateOptions.push(...docOpts);
+
+        // Deduplicate
+        const uniqueOptions = Array.from(new Set(candidateOptions));
+
+        matchedOption = uniqueOptions.find((opt) => {
+          const optText = (opt.textContent || '').toLowerCase().trim();
+          const optVal = (opt.getAttribute('data-value') || '').toLowerCase().trim();
+          return optText === targetStr || optVal === targetStr;
+        });
+
+        if (!matchedOption) {
+          matchedOption = uniqueOptions.find((opt) => {
+            const optText = (opt.textContent || '').toLowerCase().trim();
+            return optText.includes(targetStr) || targetStr.includes(optText);
+          });
+        }
+
+        if (matchedOption) break;
+        await new Promise((r) => setTimeout(r, 40));
+      }
+
+      if (matchedOption) {
+        matchedOption.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+        matchedOption.click();
+        matchedOption.dispatchEvent(new Event('change', { bubbles: true }));
+
+        // Wait for selection state to settle
+        await new Promise((r) => setTimeout(r, 60));
+        const selectedText = trigger.textContent?.trim() || matchedOption.textContent?.trim() || '';
+
+        return {
+          status: 'handled',
+          verified: true,
+          actualValue: selectedText,
+        };
+      }
+
+      return {
+        status: 'failed',
+        reason: `Option matching "${String(value)}" not found in Google Forms dropdown menu`,
+        interactionStarted: true,
+      };
     }
 
-    return false;
+    return { status: 'not_applicable' };
   }
 }

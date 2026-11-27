@@ -1,6 +1,7 @@
 /**
  * Generic handler for custom comboboxes, ARIA dropdowns, listboxes, and custom select controls.
  * Supports ARIA combobox pattern, expanding options, finding matched items, and clicking options.
+ * Incorporates bounded option waiting and keyboard interaction fallback.
  */
 
 export async function setCustomComboboxValue(
@@ -17,45 +18,63 @@ export async function setCustomComboboxValue(
   const comboboxTrigger =
     container.getAttribute('role') === 'combobox'
       ? container
-      : container.querySelector('[role="combobox"], [aria-haspopup="listbox"], button') as HTMLElement || container;
+      : (container.querySelector('[role="combobox"], [aria-haspopup="listbox"], button') as HTMLElement) || container;
 
-  // Step 1: Open the dropdown
-  comboboxTrigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-  comboboxTrigger.click();
-
-  // Brief pause for option list to render/animate into DOM
-  await new Promise((r) => setTimeout(r, 60));
-
-  // Step 2: Search for options in the popup, within container, or document root
-  const popupId = comboboxTrigger.getAttribute('aria-controls') || comboboxTrigger.getAttribute('aria-owns');
-  let optionContainer: HTMLElement | Document = document;
-  if (popupId) {
-    const controlled = document.getElementById(popupId);
-    if (controlled) optionContainer = controlled;
+  // Step 1: Open the dropdown only if not already open
+  const isExpanded = comboboxTrigger.getAttribute('aria-expanded') === 'true';
+  if (!isExpanded) {
+    comboboxTrigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    comboboxTrigger.click();
   }
 
-  const options = Array.from(
-    optionContainer.querySelectorAll('[role="option"], .select2-results__option, .ng-option, [data-value]')
-  ) as HTMLElement[];
+  // Step 2: Bounded wait for options list to render into DOM (up to 400ms)
+  const popupId = comboboxTrigger.getAttribute('aria-controls') || comboboxTrigger.getAttribute('aria-owns');
+  let matchedOption: HTMLElement | undefined;
 
-  let matchedOption = options.find((opt) => {
-    const val = (opt.getAttribute('data-value') || opt.textContent || '').trim().toLowerCase();
-    return val === normalizedTarget;
-  });
+  const startTime = Date.now();
+  while (Date.now() - startTime < 400) {
+    let optionContainer: HTMLElement | Document = document;
+    if (popupId) {
+      const controlled = document.getElementById(popupId);
+      if (controlled) optionContainer = controlled;
+    }
 
-  if (!matchedOption) {
+    const options = Array.from(
+      optionContainer.querySelectorAll(
+        '[role="option"], .select2-results__option, .ng-option, [data-value], .dropdown-item'
+      )
+    ) as HTMLElement[];
+
+    // 1. Exact match first
     matchedOption = options.find((opt) => {
       const val = (opt.getAttribute('data-value') || opt.textContent || '').trim().toLowerCase();
-      return val.includes(normalizedTarget) || normalizedTarget.includes(val);
+      return val === normalizedTarget;
     });
+
+    // 2. Normalized prefix / bounded match only if high confidence
+    if (!matchedOption) {
+      matchedOption = options.find((opt) => {
+        const val = (opt.getAttribute('data-value') || opt.textContent || '').trim().toLowerCase();
+        return val.startsWith(normalizedTarget) || normalizedTarget.startsWith(val);
+      });
+    }
+
+    if (matchedOption) break;
+    await new Promise((r) => setTimeout(r, 40));
   }
 
+  // Step 3: Select the option
   if (matchedOption) {
+    matchedOption.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true }));
     matchedOption.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
     matchedOption.click();
     matchedOption.dispatchEvent(new Event('change', { bubbles: true }));
     return true;
   }
+
+  // Step 4: Keyboard fallback (ArrowDown + Enter) for native/accessible comboboxes
+  comboboxTrigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown', bubbles: true }));
+  comboboxTrigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
 
   return false;
 }

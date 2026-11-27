@@ -30,10 +30,11 @@ export const FillReviewTab: React.FC<FillReviewTabProps> = ({
     setFillReport(null);
   }, [initialFills]);
 
-  const toggleApproval = (fieldId: string) => {
+  const toggleApproval = (identifier: string) => {
     setFills((prev) =>
       prev.map((f) => {
-        if (f.fieldId !== fieldId) return f;
+        const idMatch = (f.compositeIdentity && f.compositeIdentity === identifier) || f.fieldId === identifier;
+        if (!idMatch) return f;
         const newApproved = !f.approved;
         return {
           ...f,
@@ -44,11 +45,12 @@ export const FillReviewTab: React.FC<FillReviewTabProps> = ({
     );
   };
 
-  const toggleOverwrite = (fieldId: string, e: React.MouseEvent) => {
+  const toggleOverwrite = (identifier: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setFills((prev) =>
       prev.map((f) => {
-        if (f.fieldId !== fieldId) return f;
+        const idMatch = (f.compositeIdentity && f.compositeIdentity === identifier) || f.fieldId === identifier;
+        if (!idMatch) return f;
         const newOverwrite = !f.isOverwrite;
         return {
           ...f,
@@ -306,24 +308,26 @@ export const FillReviewTab: React.FC<FillReviewTabProps> = ({
 
       {/* Field Review List */}
       <div className="space-y-2.5">
-        {fills.map((field) => (
-          <div
-            key={field.fieldId}
-            onClick={() => toggleApproval(field.fieldId)}
-            className={`p-4 rounded-xl border transition cursor-pointer ${
-              field.approved
-                ? 'border-accent bg-surface shadow-xs'
-                : 'border-border-subtle bg-surface hover:bg-subtle/50 opacity-80'
-            }`}
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex items-start gap-3">
-                <input
-                  type="checkbox"
-                  checked={field.approved}
-                  onChange={() => {}} // Controlled by wrapper click
-                  className="mt-0.5 rounded text-accent focus:ring-accent border-border-subtle"
-                />
+        {fills.map((field) => {
+          const itemKey = field.compositeIdentity || `${field.frameId || 0}:::${field.fieldId}`;
+          return (
+            <div
+              key={itemKey}
+              onClick={() => toggleApproval(itemKey)}
+              className={`p-4 rounded-xl border transition cursor-pointer ${
+                field.approved
+                  ? 'border-accent bg-surface shadow-xs'
+                  : 'border-border-subtle bg-surface hover:bg-subtle/50 opacity-80'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    checked={field.approved}
+                    onChange={() => {}} // Controlled by wrapper click
+                    className="mt-0.5 rounded text-accent focus:ring-accent border-border-subtle"
+                  />
 
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
@@ -383,7 +387,7 @@ export const FillReviewTab: React.FC<FillReviewTabProps> = ({
               {/* Overwrite Toggle */}
               {field.currentValue && (
                 <div
-                  onClick={(e) => toggleOverwrite(field.fieldId, e)}
+                  onClick={(e) => toggleOverwrite(itemKey, e)}
                   className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] border border-border-subtle hover:bg-subtle transition"
                 >
                   <input
@@ -397,8 +401,9 @@ export const FillReviewTab: React.FC<FillReviewTabProps> = ({
               )}
             </div>
           </div>
-        ))}
-      </div>
+        );
+      })}
     </div>
-  );
+  </div>
+);
 };

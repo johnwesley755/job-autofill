@@ -2,8 +2,18 @@ import { DetectedField } from '../scanner/types';
 import { CandidateProfile } from '../types/profile';
 import { resolveProfileValue, ResolveOptions } from './profileResolver';
 
+export type FieldFillReadiness =
+  | 'ready'
+  | 'needs_manual_mapping'
+  | 'missing_profile_value'
+  | 'ambiguous_mapping'
+  | 'unsupported_control'
+  | 'existing_value_protected'
+  | 'disabled_or_readonly';
+
 export interface ProposedFieldFill {
   fieldId: string;
+  compositeIdentity?: string; // tabId + frameId + sessionId + fieldId
   label: string;
   type: string;
   canonicalKey: string;
@@ -14,6 +24,8 @@ export interface ProposedFieldFill {
   confidenceTier: 'high' | 'medium' | 'low';
   requiresReview: boolean;
   isEligibleForPreselection: boolean;
+  readinessState: FieldFillReadiness;
+  hasProfileValue: boolean;
   reason: string;
   approved: boolean; // Must be explicitly approved by user
   hasConflictOrWarning: boolean;
@@ -27,6 +39,7 @@ export interface ProposedFieldFill {
 
 /**
  * Maps detected fields into proposed fill plans based on candidate profile.
+ * Retains every detected field with an explicit readiness state.
  * Evaluates safety, non-empty existing values, and type compatibility.
  */
 export function createProposedFieldFills(
@@ -37,24 +50,19 @@ export function createProposedFieldFills(
   const proposedFills: ProposedFieldFill[] = [];
 
   for (const field of fields) {
-    if (!field.mappedProfileKey || field.confidenceTier === 'low') {
-      continue;
-    }
-
-    // Passwords must NEVER be filled
+    // Passwords must NEVER be mapped or filled
     if (field.type === 'password') {
       continue;
     }
 
-    // Hidden or disabled controls cannot be filled
-    if (!field.isVisible || field.isDisabled || field.isReadOnly) {
-      continue;
-    }
+    const score = field.confidenceScore || 0;
+    const isAmbiguous = Boolean(field.isAmbiguous);
+    const hasCanonicalKey = Boolean(field.mappedProfileKey);
+    const value = hasCanonicalKey ? resolveProfileValue(field.mappedProfileKey!, profile, options) : undefined;
+    const hasProfileValue = value !== undefined && value !== null && value !== '';
 
-    const value = resolveProfileValue(field.mappedProfileKey, profile, options);
-    if (value === undefined || value === null || value === '') {
-      continue; // Missing candidate profile data: never fabricate
-    }
+    // Check disabled / readonly / invisible
+    const isDisabledOrReadonly = !field.isVisible || field.isDisabled || Boolean(field.isReadOnly);
 
     // Assess existing non-empty value protection
     let hasExistingValue = false;
@@ -66,41 +74,66 @@ export function createProposedFieldFills(
       hasExistingValue = true;
     }
 
-    const score = field.confidenceScore || 0;
-    const isAmbiguous = Boolean(field.isAmbiguous);
-    const isHighConfidence = score >= 0.90 && !isAmbiguous;
-    // Evaluated for confidence tier
-    void (score >= 0.70 && score < 0.90);
-
+    // Determine readiness state
+    let readinessState: FieldFillReadiness = 'ready';
     let warningReason: string | undefined;
     let hasConflictOrWarning = false;
 
-    if (isAmbiguous) {
+    if (isDisabledOrReadonly) {
+      readinessState = 'disabled_or_readonly';
+      hasConflictOrWarning = true;
+      warningReason = 'Control is hidden, disabled, or read-only.';
+    } else if (field.type === 'unknown' || field.type === 'file') {
+      readinessState = 'unsupported_control';
+      hasConflictOrWarning = true;
+      warningReason = `Control type <${field.type}> requires manual user action.`;
+    } else if (!hasCanonicalKey) {
+      readinessState = 'needs_manual_mapping';
+      hasConflictOrWarning = true;
+      warningReason = 'No matching profile key found. Manual mapping required.';
+    } else if (isAmbiguous) {
+      readinessState = 'ambiguous_mapping';
       hasConflictOrWarning = true;
       warningReason = field.ambiguityReason || 'Multiple competing profile keys detected. Manual review required.';
+    } else if (!hasProfileValue) {
+      readinessState = 'missing_profile_value';
+      hasConflictOrWarning = true;
+      warningReason = `Candidate profile has no data for "${field.mappedProfileKey}".`;
     } else if (hasExistingValue) {
+      readinessState = 'existing_value_protected';
       hasConflictOrWarning = true;
       warningReason = 'Field already contains data. Explicit overwrite decision required.';
     }
 
+    const isHighConfidence = score >= 0.90 && !isAmbiguous && hasProfileValue && !hasExistingValue;
+    const isEligibleForPreselection =
+      hasProfileValue &&
+      !isDisabledOrReadonly &&
+      !isAmbiguous &&
+      !hasExistingValue &&
+      readinessState === 'ready';
+
     const requiresReview = !isHighConfidence || hasConflictOrWarning;
-    // Ambiguous fields or fields with existing values are NEVER eligible for preselection
-    const isEligibleForPreselection = isHighConfidence && !hasExistingValue && !isAmbiguous;
 
     proposedFills.push({
       fieldId: field.id,
+      compositeIdentity: `${field.frameId || 0}:::${field.scanSessionId || 'none'}:::${field.id}`,
       label: field.label || field.name || 'Application Field',
       type: field.type,
-      canonicalKey: field.mappedProfileKey,
-      proposedValue: value as any,
+      canonicalKey: field.mappedProfileKey || '',
+      proposedValue: (value ?? '') as any,
       currentValue: field.currentValue,
       scanTimeValue: field.currentValue,
       confidenceScore: score,
       confidenceTier: field.confidenceTier || 'low',
       requiresReview,
       isEligibleForPreselection,
-      reason: `Mapped via canonical dictionary to ${field.mappedProfileKey} (Score: ${(score * 100).toFixed(0)}%)`,
-      approved: isEligibleForPreselection, // Pre-select high-confidence, non-ambiguous fields with no existing values
+      readinessState,
+      hasProfileValue,
+      reason: hasCanonicalKey
+        ? `Mapped to ${field.mappedProfileKey} (Score: ${(score * 100).toFixed(0)}%)`
+        : 'Unmapped field detected on page',
+      approved: isEligibleForPreselection, // Pre-select high-confidence, non-ambiguous fields with available values
       hasConflictOrWarning,
       isAmbiguous,
       isOverwrite: false,

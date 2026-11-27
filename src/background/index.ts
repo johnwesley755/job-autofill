@@ -274,6 +274,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return;
       }
 
+      // 3. Fallback: Query all open tabs for any non-extension external tab
+      const allTabs = await chrome.tabs.query({});
+      const externalTab = allTabs.find((t) => t.url && !isExtensionOrBrowserInternalUrl(t.url));
+      if (externalTab && externalTab.id && externalTab.url) {
+        await persistTrackedTab(externalTab.id, externalTab.url, externalTab.title);
+        const domain = new URL(externalTab.url).hostname;
+        const resp: GetActiveApplicationTabResponse = {
+          tabId: externalTab.id,
+          url: externalTab.url,
+          title: externalTab.title ?? null,
+          domain,
+          isSupportedDomain: isSupportedApplicationDomain(externalTab.url),
+        };
+        sendResponse(resp);
+        return;
+      }
+
       // If no valid external application tab is found, return empty (explicit user selection required)
       const emptyResp: GetActiveApplicationTabResponse = {
         tabId: null,

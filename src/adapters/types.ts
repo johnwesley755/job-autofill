@@ -1,5 +1,20 @@
 import { DetectedField } from '../scanner/types';
 
+export type ControlHandlerResult =
+  | {
+      status: 'handled';
+      verified: boolean;
+      actualValue?: string | boolean | string[];
+    }
+  | {
+      status: 'not_applicable';
+    }
+  | {
+      status: 'failed';
+      reason: string;
+      interactionStarted: boolean;
+    };
+
 export interface FormAdapter {
   platformId: string;
   platformName: string;
@@ -19,12 +34,12 @@ export interface FormAdapter {
   /**
    * Optional platform-specific fill handler.
    * Handles custom widgets (custom select, radio, dropdowns, react-select, etc.).
-   * If returns false or undefined, standard filler applies.
+   * Returns structured ControlHandlerResult or legacy boolean.
    */
   fillControl?(
     field: DetectedField,
     value: string | boolean | string[],
     element: HTMLElement,
     groupedElements?: HTMLElement[]
-  ): boolean | Promise<boolean>;
+  ): ControlHandlerResult | boolean | Promise<ControlHandlerResult | boolean>;
 }

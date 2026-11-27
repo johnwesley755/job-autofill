@@ -4,6 +4,7 @@ import { setNativeInputValue } from './nativeSetter';
 import { setNativeSelectValue } from './selectHandler';
 import { setRadioGroupValue } from './radioHandler';
 import { setCheckboxValue } from './checkboxHandler';
+import { setAriaRadioValue, setAriaCheckboxValue } from './ariaControlHandlers';
 import { setCustomComboboxValue } from './customComboboxHandler';
 import { adapterRegistry } from '../adapters/adapterRegistry';
 import { DetectedField } from '../scanner/types';
@@ -269,6 +270,7 @@ export async function executeFillInstructions(
 
     try {
       let adapterHandled = false;
+      let interactionStarted = false;
 
       // 1. Try Platform Adapter custom control fill if available
       if (adapter && adapter.fillControl) {
@@ -292,18 +294,63 @@ export async function executeFillInstructions(
           platformId: reg.platformId,
         };
 
-        adapterHandled = await adapter.fillControl(
+        const adapterRes = await adapter.fillControl(
           syntheticField,
           instr.proposedValue,
           el,
           reg.groupedElements
         );
+
+        if (typeof adapterRes === 'object' && adapterRes !== null) {
+          if (adapterRes.status === 'handled') {
+            adapterHandled = true;
+          } else if (adapterRes.status === 'failed') {
+            interactionStarted = adapterRes.interactionStarted;
+            if (interactionStarted) {
+              // Control was already opened or modified by adapter; do not trigger blind fallback clicks!
+              results.push({
+                fieldId: instr.fieldId,
+                status: 'rejected_by_site',
+                message: adapterRes.reason,
+              });
+              failedCount++;
+              continue;
+            }
+          }
+        } else if (typeof adapterRes === 'boolean') {
+          adapterHandled = adapterRes;
+        }
       }
 
-      // 2. Standard native control fill fallback if not handled by adapter
-      if (!adapterHandled) {
-        if (reg.groupedElements && reg.groupedElements.length > 0) {
-          if (inputType === 'radio' || role === 'radio') {
+      // 2. Standard native & ARIA control fill fallback if not handled by adapter
+      if (!adapterHandled && !interactionStarted) {
+        const isAriaRadioGroup = reg.groupedElements && reg.groupedElements.length > 0 && (role === 'radio' || reg.groupedElements[0]?.getAttribute('role') === 'radio');
+        const isAriaCheckboxGroup = reg.groupedElements && reg.groupedElements.length > 0 && (role === 'checkbox' || reg.groupedElements[0]?.getAttribute('role') === 'checkbox');
+
+        if (isAriaRadioGroup && reg.groupedElements) {
+          const res = setAriaRadioValue(reg.groupedElements, instr.proposedValue as any);
+          if (!res.success) {
+            results.push({
+              fieldId: instr.fieldId,
+              status: 'rejected_by_site',
+              message: `Could not match or select ARIA radio option for "${String(instr.proposedValue)}".`,
+            });
+            failedCount++;
+            continue;
+          }
+        } else if (isAriaCheckboxGroup && reg.groupedElements) {
+          const res = setAriaCheckboxValue(reg.groupedElements, instr.proposedValue as any, Boolean(instr.overwriteExisting));
+          if (!res.success) {
+            results.push({
+              fieldId: instr.fieldId,
+              status: 'rejected_by_site',
+              message: `Could not match or select ARIA checkbox option for "${String(instr.proposedValue)}".`,
+            });
+            failedCount++;
+            continue;
+          }
+        } else if (reg.groupedElements && reg.groupedElements.length > 0) {
+          if (inputType === 'radio') {
             setRadioGroupValue(reg.groupedElements as HTMLInputElement[], instr.proposedValue as any);
           } else {
             setCheckboxValue(
